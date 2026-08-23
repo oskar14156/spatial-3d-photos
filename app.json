@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "Spatial3D",
+    "slug": "spatial-3d-photos",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.spatial3d.photos",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Spatial3D requires camera access to capture stereoscopic 3D photo pairs with live Cha-Cha baseline guidance and horizon leveling.",
+        "NSPhotoLibraryUsageDescription": "Spatial3D requires photo library access to import spatial photos/videos and save exported 3D side-by-side, anaglyph, and wigglegram media.",
+        "NSPhotoLibraryAddUsageDescription": "Spatial3D needs permission to save 3D stereoscopic photos and videos to your photo library.",
+        "NSMotionUsageDescription": "Spatial3D uses motion sensors (gyroscope and accelerometer) for interactive 3D parallax tilt viewing and real-time camera horizon leveling."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "HIGH_SAMPLING_RATE_SENSORS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Spatial3D to access your camera for stereoscopic 3D capture."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Spatial3D to access your photos to import and export 3D stereo media.",
+          "savePhotosPermission": "Allow Spatial3D to save 3D stereoscopic photos and wigglegrams to your library."
+        }
+      ]
+    ]
+  }
+}
