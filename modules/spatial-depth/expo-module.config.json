@@ -1,0 +1,7 @@
+{
+  "platforms": ["apple"],
+  "apple": {
+    "podspecPath": "ios/SpatialDepth.podspec",
+    "modules": ["SpatialDepthModule"]
+  }
+}

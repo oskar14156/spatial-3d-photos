@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  Pressable,
   ScrollView,
-  TouchableOpacity,
+  StyleSheet,
+  Text,
+  View,
   useWindowDimensions,
 } from 'react-native';
+import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Header } from '../components/common/Header';
-import { SegmentedControl, SegmentOption } from '../components/common/SegmentedControl';
+import { IOSIconButton } from '../components/common/IOSIconButton';
+import { NativeGlass } from '../components/common/NativeGlass';
 import { SplitEyeSBSView } from '../components/viewer/SplitEyeSBSView';
 import { CrossEyeView } from '../components/viewer/CrossEyeView';
 import { Anaglyph3DView } from '../components/viewer/Anaglyph3DView';
@@ -17,297 +18,307 @@ import { Wigglegram3DView } from '../components/viewer/Wigglegram3DView';
 import { ParallaxTilt3DView } from '../components/viewer/ParallaxTilt3DView';
 import { StereoCalibrationOverlay } from '../components/viewer/StereoCalibrationOverlay';
 import { ChaChaCamera } from '../components/camera/ChaChaCamera';
-import { DemoShowcaseSelector } from '../components/gallery/DemoShowcaseSelector';
 import { SavedProjectsList } from '../components/gallery/SavedProjectsList';
 import { MediaImporterModal } from '../components/importer/MediaImporterModal';
 import { ExportModal } from '../components/export/ExportModal';
 import { SettingsModal } from '../components/settings/SettingsModal';
-import { LiquidGlassView } from '../components/common/LiquidGlassView';
-import { LiquidGlassButton } from '../components/common/LiquidGlassButton';
-import { StereoPair, ViewMode, LanguageCode } from '../types';
-import { DEMO_STEREO_PAIRS, COLORS } from '../constants';
-import { t, setLanguage } from '../i18n/translations';
+import type { LanguageCode, StereoPair, ViewMode } from '../types';
+import { DEMO_STEREO_PAIRS } from '../constants';
+import { setLanguage } from '../i18n/translations';
 import {
-  loadSavedStereoPairs,
-  saveStereoPair,
   deleteStereoPair,
   loadLanguagePreference,
+  loadSavedStereoPairs,
+  saveStereoPair,
 } from '../utils/storage';
 import { hapticFeedback } from '../utils/haptics';
 
+const MODES: { id: ViewMode; label: string }[] = [
+  { id: 'wigglegram', label: 'Wiggle' },
+  { id: 'sbs', label: 'Side by Side' },
+  { id: 'cross_eye', label: 'Cross Eye' },
+  { id: 'anaglyph', label: 'Anaglyph' },
+  { id: 'parallax_tilt', label: 'Parallax' },
+];
+
 export const HomeScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const isLandscape = windowWidth > windowHeight;
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
 
-  // Active Stereo Pair State
-  const [stereoPairs, setStereoPairs] = useState<StereoPair[]>(DEMO_STEREO_PAIRS);
+  const [pairs, setPairs] = useState<StereoPair[]>(DEMO_STEREO_PAIRS);
   const [currentPair, setCurrentPair] = useState<StereoPair>(DEMO_STEREO_PAIRS[0]);
-
-  // Viewing Modes
-  const [activeViewMode, setActiveViewMode] = useState<ViewMode>('wigglegram');
-  const [showAdjustments, setShowAdjustments] = useState<boolean>(false);
-  const [isVRHeadsetMode, setIsVRHeadsetMode] = useState<boolean>(false);
-
-  // Modals & Navigation
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
-  const [isImporterVisible, setIsImporterVisible] = useState<boolean>(false);
-  const [isExportVisible, setIsExportVisible] = useState<boolean>(false);
-  const [isSettingsVisible, setIsSettingsVisible] = useState<boolean>(false);
+  const [mode, setMode] = useState<ViewMode>('wigglegram');
+  const [camera, setCamera] = useState(false);
+  const [adjust, setAdjust] = useState(false);
+  const [vr, setVr] = useState(false);
+  const [importer, setImporter] = useState(false);
+  const [exporter, setExporter] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [, setCurrentLanguage] = useState<LanguageCode>('de');
 
-  // Load Persisted Data on Launch
   useEffect(() => {
-    async function init() {
-      const savedLang = await loadLanguagePreference();
-      setLanguage(savedLang);
-      setCurrentLanguage(savedLang);
+    (async () => {
+      const lang = await loadLanguagePreference();
+      setLanguage(lang);
+      setCurrentLanguage(lang);
 
-      const savedPairs = await loadSavedStereoPairs();
-      if (savedPairs.length > 0) {
-        setStereoPairs(savedPairs);
-        setCurrentPair(savedPairs[0]);
+      const saved = await loadSavedStereoPairs();
+      if (saved.length) {
+        setPairs(saved);
+        setCurrentPair(saved[0]);
       }
-    }
-    init();
+    })();
   }, []);
 
-  const handleSelectStereoPair = (pair: StereoPair) => {
+  const viewerHeight = useMemo(() => {
+    if (landscape) return Math.max(300, height - insets.top - insets.bottom - 132);
+    return Math.min(width * 0.92, 430);
+  }, [height, insets.bottom, insets.top, landscape, width]);
+
+  const addPair = async (pair: StereoPair) => {
+    await saveStereoPair(pair);
+    setPairs((prev) => [pair, ...prev.filter((p) => p.id !== pair.id)]);
     setCurrentPair(pair);
   };
 
-  const handleCaptureComplete = async (newPair: StereoPair) => {
-    setIsCameraActive(false);
-    await saveStereoPair(newPair);
-    setStereoPairs((prev) => [newPair, ...prev]);
-    setCurrentPair(newPair);
-  };
-
-  const handleImportComplete = async (newPair: StereoPair) => {
-    await saveStereoPair(newPair);
-    setStereoPairs((prev) => [newPair, ...prev]);
-    setCurrentPair(newPair);
-  };
-
-  const handleDeletePair = async (pairId: string) => {
-    await deleteStereoPair(pairId);
-    setStereoPairs((prev) => {
-      const filtered = prev.filter((p) => p.id !== pairId);
-      if (currentPair.id === pairId && filtered.length > 0) {
-        setCurrentPair(filtered[0]);
-      }
-      return filtered;
-    });
-  };
-
-  const viewModeOptions: SegmentOption<ViewMode>[] = [
-    { id: 'wigglegram', label: t('view_mode_wigglegram') },
-    { id: 'sbs', label: t('view_mode_sbs') },
-    { id: 'cross_eye', label: t('view_mode_cross_eye') },
-    { id: 'anaglyph', label: t('view_mode_anaglyph') },
-    { id: 'parallax_tilt', label: t('view_mode_parallax_tilt') },
-  ];
-
-  if (isCameraActive) {
+  if (camera) {
     return (
-      <View style={[styles.fullScreen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <ChaChaCamera
-          onCaptureComplete={handleCaptureComplete}
-          onClose={() => setIsCameraActive(false)}
-        />
-      </View>
+      <ChaChaCamera
+        onClose={() => setCamera(false)}
+        onCaptureComplete={async (pair) => {
+          await addPair(pair);
+          setCamera(false);
+        }}
+      />
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      {/* Liquid Glass Header */}
-      <Header
-        title={t('app_title')}
-        subtitle={currentPair.title}
-        mediaTypeTag={currentPair.mediaType === 'video' ? '🎥 Spatial Video' : undefined}
-        leftAction={{
-          icon: <Text style={styles.headerIcon}>⚙️</Text>,
-          onPress: () => setIsSettingsVisible(true),
-        }}
-        rightSecondaryAction={{
-          icon: <Text style={styles.headerIcon}>✂️</Text>,
-          onPress: () => setIsImporterVisible(true),
-        }}
-        rightAction={{
-          icon: <Text style={styles.headerIcon}>📤</Text>,
-          onPress: () => setIsExportVisible(true),
-        }}
-      />
-
+    <View style={styles.root}>
       <ScrollView
-        style={styles.scrollContent}
-        contentContainerStyle={[styles.scrollInner, isLandscape && styles.scrollInnerLandscape]}
         showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="never"
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: insets.top + 8,
+            paddingBottom: insets.bottom + 118,
+          },
+          landscape && styles.contentLandscape,
+        ]}
       >
-        {/* Top 3D Mode Selector Pills */}
-        <View style={styles.segmentedWrapper}>
-          <SegmentedControl
-            options={viewModeOptions}
-            selectedId={activeViewMode}
-            onSelect={setActiveViewMode}
-            scrollable={true}
+        <View style={styles.nav}>
+          <IOSIconButton
+            symbol="gearshape.fill"
+            accessibilityLabel="Settings"
+            onPress={() => setSettings(true)}
           />
+
+          <View style={styles.navRight}>
+            <IOSIconButton
+              symbol="square.and.arrow.down.fill"
+              accessibilityLabel="Import media"
+              onPress={() => setImporter(true)}
+            />
+            <IOSIconButton
+              symbol="square.and.arrow.up.fill"
+              accessibilityLabel="Export"
+              onPress={() => setExporter(true)}
+            />
+          </View>
         </View>
 
-        {/* Central 3D Interactive Viewer Card */}
-        <LiquidGlassView
-          style={[styles.viewerGlassCard, isLandscape && styles.viewerGlassCardLandscape]}
-          glowColor={COLORS.liquidGlassGlow}
-          borderRadius={24}
-        >
-          {activeViewMode === 'wigglegram' && (
-            <Wigglegram3DView stereoPair={currentPair} />
-          )}
+        <View style={styles.titleBlock}>
+          <Text style={styles.eyebrow}>
+            {currentPair.mediaType === 'video' ? 'SPATIAL VIDEO' : 'STEREO PHOTO'}
+          </Text>
+          <Text style={styles.title} numberOfLines={2}>
+            {currentPair.title || 'Spatial Studio'}
+          </Text>
+        </View>
 
-          {activeViewMode === 'sbs' && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.modeRail}
+        >
+          {MODES.map((item) => {
+            const active = mode === item.id;
+            return (
+              <Pressable
+                key={item.id}
+                onPress={() => {
+                  hapticFeedback.selection();
+                  setMode(item.id);
+                }}
+                style={[styles.modeChip, active && styles.modeChipActive]}
+              >
+                <Text style={[styles.modeText, active && styles.modeTextActive]}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View style={[styles.viewer, { height: viewerHeight }]}>
+          {mode === 'wigglegram' && <Wigglegram3DView stereoPair={currentPair} />}
+          {mode === 'sbs' && (
             <SplitEyeSBSView
               stereoPair={currentPair}
-              isVRHeadsetMode={isVRHeadsetMode}
-              onToggleVRMode={() => setIsVRHeadsetMode(!isVRHeadsetMode)}
+              isVRHeadsetMode={vr}
+              onToggleVRMode={() => setVr((v) => !v)}
             />
           )}
+          {mode === 'cross_eye' && <CrossEyeView stereoPair={currentPair} />}
+          {mode === 'anaglyph' && <Anaglyph3DView stereoPair={currentPair} />}
+          {mode === 'parallax_tilt' && <ParallaxTilt3DView stereoPair={currentPair} />}
 
-          {activeViewMode === 'cross_eye' && (
-            <CrossEyeView stereoPair={currentPair} />
-          )}
+          <View style={styles.viewerTopLeft}>
+            <NativeGlass style={styles.viewerBadge}>
+              <Text style={styles.viewerBadgeText}>
+                {currentPair.mediaType === 'video' ? 'VIDEO' : 'PHOTO'}
+              </Text>
+            </NativeGlass>
+          </View>
 
-          {activeViewMode === 'anaglyph' && (
-            <Anaglyph3DView stereoPair={currentPair} />
-          )}
-
-          {activeViewMode === 'parallax_tilt' && (
-            <ParallaxTilt3DView stereoPair={currentPair} />
-          )}
-        </LiquidGlassView>
-
-        {/* Floating Action Controls */}
-        <View style={styles.actionButtonsRow}>
-          <LiquidGlassButton
-            title="📸 3D Kamera Starten"
-            variant="primary"
-            style={styles.primaryActionButton}
-            onPress={() => setIsCameraActive(true)}
-          />
-
-          <LiquidGlassButton
-            title={showAdjustments ? '✕ Justierung' : '⚙️ 3D Ausrichten'}
-            variant="secondary"
-            style={styles.secondaryActionButton}
-            onPress={() => {
-              hapticFeedback.light();
-              setShowAdjustments(!showAdjustments);
-            }}
-          />
+          <View style={styles.viewerTopRight}>
+            <IOSIconButton
+              symbol="slider.horizontal.3"
+              accessibilityLabel="Stereo alignment"
+              selected={adjust}
+              onPress={() => setAdjust((v) => !v)}
+            />
+          </View>
         </View>
 
-        {/* Collapsible Stereo Calibration & Alignment Deck */}
-        {showAdjustments && (
-          <View style={styles.adjustmentsContainer}>
+        {adjust && (
+          <View style={styles.adjust}>
+            <Text style={styles.sectionTitle}>Stereo Alignment</Text>
             <StereoCalibrationOverlay
               alignment={currentPair.alignment}
-              onChangeAlignment={(newAlignment) => {
-                const updated = { ...currentPair, alignment: newAlignment };
+              onChangeAlignment={(alignment) => {
+                const updated = { ...currentPair, alignment };
                 setCurrentPair(updated);
-                setStereoPairs((prev) =>
-                  prev.map((p) => (p.id === currentPair.id ? updated : p))
-                );
+                setPairs((prev) => prev.map((p) => p.id === updated.id ? updated : p));
               }}
             />
           </View>
         )}
 
-        {/* Gallery Showcases & Saved Pairs */}
-        <DemoShowcaseSelector
-          currentPairId={currentPair.id}
-          onSelectPair={handleSelectStereoPair}
-        />
-
-        <SavedProjectsList
-          projects={stereoPairs}
-          currentPairId={currentPair.id}
-          onSelectProject={handleSelectStereoPair}
-          onDeleteProject={handleDeletePair}
-        />
+        {!landscape && (
+          <View style={styles.librarySection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Library</Text>
+              <Text style={styles.sectionMeta}>{pairs.length} projects</Text>
+            </View>
+            <SavedProjectsList
+              projects={pairs}
+              currentPairId={currentPair.id}
+              onSelectProject={setCurrentPair}
+              onDeleteProject={async (id) => {
+                await deleteStereoPair(id);
+                setPairs((prev) => prev.filter((p) => p.id !== id));
+              }}
+            />
+          </View>
+        )}
       </ScrollView>
 
-      {/* Media Importer Modal */}
+      <View
+        pointerEvents="box-none"
+        style={[styles.captureDockWrap, { bottom: insets.bottom + 10 }]}
+      >
+        <NativeGlass interactive style={styles.captureDock}>
+          <Pressable
+            onPress={() => {
+              hapticFeedback.medium();
+              setCamera(true);
+            }}
+            style={({ pressed }) => [
+              styles.captureButton,
+              pressed && styles.capturePressed,
+            ]}
+          >
+            <SymbolView
+              name="camera.fill"
+              tintColor="#FFFFFF"
+              size={19}
+              weight="semibold"
+              style={styles.captureIcon}
+            />
+            <Text style={styles.captureText}>Capture Stereo</Text>
+          </Pressable>
+
+          <View style={styles.dockDivider} />
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Import"
+            onPress={() => setImporter(true)}
+            style={styles.dockIcon}
+          >
+            <SymbolView name="photo.on.rectangle.angled" tintColor="#FFFFFF" size={19} />
+          </Pressable>
+        </NativeGlass>
+      </View>
+
       <MediaImporterModal
-        visible={isImporterVisible}
-        onImportComplete={handleImportComplete}
-        onClose={() => setIsImporterVisible(false)}
+        visible={importer}
+        onClose={() => setImporter(false)}
+        onImportComplete={addPair}
       />
-
-      {/* Export Modal */}
       <ExportModal
-        visible={isExportVisible}
+        visible={exporter}
         stereoPair={currentPair}
-        onClose={() => setIsExportVisible(false)}
+        onClose={() => setExporter(false)}
       />
-
-      {/* Settings Modal */}
       <SettingsModal
-        visible={isSettingsVisible}
-        onLanguageChange={(lang) => setCurrentLanguage(lang)}
-        onClose={() => setIsSettingsVisible(false)}
+        visible={settings}
+        onClose={() => setSettings(false)}
+        onLanguageChange={setCurrentLanguage}
       />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  fullScreen: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  headerIcon: {
-    fontSize: 16,
-  },
-  scrollContent: {
-    flex: 1,
-  },
-  scrollInner: {
-    paddingBottom: 40,
-  },
-  scrollInnerLandscape: {
-    paddingHorizontal: 12,
-  },
-  segmentedWrapper: {
-    marginHorizontal: 12,
-    marginVertical: 10,
-  },
-  viewerGlassCard: {
-    marginHorizontal: 12,
-    marginVertical: 4,
-    padding: 10,
-    backgroundColor: 'rgba(16, 16, 22, 0.65)',
-  },
-  viewerGlassCardLandscape: {
-    marginHorizontal: 6,
-  },
-  actionButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginHorizontal: 12,
-    marginVertical: 10,
-  },
-  primaryActionButton: {
-    flex: 1.2,
-  },
-  secondaryActionButton: {
-    flex: 1,
-  },
-  adjustmentsContainer: {
-    marginHorizontal: 12,
-    marginVertical: 8,
-  },
+  root: { flex: 1, backgroundColor: '#000' },
+  content: { paddingHorizontal: 16 },
+  contentLandscape: { paddingHorizontal: 14 },
+
+  nav: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  navRight: { flexDirection: 'row', gap: 8 },
+
+  titleBlock: { marginTop: 22, marginBottom: 16 },
+  eyebrow: { color: 'rgba(235,235,245,0.48)', fontSize: 11, fontWeight: '700', letterSpacing: 0.9 },
+  title: { color: '#FFF', marginTop: 5, fontSize: 34, lineHeight: 38, fontWeight: '700', letterSpacing: -1.1 },
+
+  modeRail: { gap: 8, paddingBottom: 14 },
+  modeChip: { height: 34, borderRadius: 17, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.07)' },
+  modeChipActive: { backgroundColor: '#FFF' },
+  modeText: { color: 'rgba(235,235,245,0.65)', fontSize: 13, fontWeight: '600' },
+  modeTextActive: { color: '#000' },
+
+  viewer: { width: '100%', backgroundColor: '#050505', borderRadius: 28, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.12)' },
+  viewerTopLeft: { position: 'absolute', top: 12, left: 12 },
+  viewerTopRight: { position: 'absolute', top: 10, right: 10 },
+  viewerBadge: { borderRadius: 11, paddingHorizontal: 9, paddingVertical: 5 },
+  viewerBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+
+  adjust: { marginTop: 22 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  sectionTitle: { color: '#FFF', fontSize: 22, fontWeight: '700', letterSpacing: -0.5, marginBottom: 10 },
+  sectionMeta: { color: 'rgba(235,235,245,0.45)', fontSize: 12, fontWeight: '600' },
+  librarySection: { marginTop: 28 },
+
+  captureDockWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  captureDock: { height: 64, width: 262, borderRadius: 32, padding: 6, flexDirection: 'row', alignItems: 'center' },
+  captureButton: { flex: 1, height: 52, borderRadius: 26, backgroundColor: '#0A84FF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  capturePressed: { transform: [{ scale: 0.97 }] },
+  captureIcon: { width: 22, height: 22 },
+  captureText: { color: '#FFF', fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
+  dockDivider: { height: 28, width: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.14)', marginHorizontal: 5 },
+  dockIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
 });

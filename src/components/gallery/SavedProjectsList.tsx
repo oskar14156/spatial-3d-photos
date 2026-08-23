@@ -1,185 +1,193 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
-import { StereoPair } from '../../types';
-import { COLORS } from '../../constants';
-import { t } from '../../i18n/translations';
+import {
+  ActionSheetIOS,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import type { StereoPair } from '../../types';
 import { hapticFeedback } from '../../utils/haptics';
 
-interface SavedProjectsListProps {
+interface Props {
   projects: StereoPair[];
   currentPairId: string;
   onSelectProject: (project: StereoPair) => void;
   onDeleteProject: (projectId: string) => void;
 }
 
-export const SavedProjectsList: React.FC<SavedProjectsListProps> = ({
+export const SavedProjectsList: React.FC<Props> = ({
   projects,
   currentPairId,
   onSelectProject,
   onDeleteProject,
 }) => {
-  if (projects.length === 0) {
-    return null;
-  }
+  if (!projects.length) return null;
+
+  const requestDelete = (project: StereoPair) => {
+    if (project.sourceType === 'demo') return;
+    hapticFeedback.medium();
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: project.title,
+          options: ['Cancel', 'Delete Project'],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 1,
+          userInterfaceStyle: 'dark',
+        },
+        (index) => {
+          if (index === 1) onDeleteProject(project.id);
+        }
+      );
+      return;
+    }
+
+    onDeleteProject(project.id);
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.sectionHeader}>{t('tab_gallery')}</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContainer}
-      >
-        {projects.map((project) => {
-          const isSelected = project.id === currentPairId;
-          const isDemo = project.sourceType === 'demo';
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.rail}
+    >
+      {projects.map((project) => {
+        const selected = project.id === currentPairId;
 
-          return (
-            <TouchableOpacity
-              key={project.id}
-              style={[styles.itemCard, isSelected && styles.itemCardSelected]}
-              onPress={() => {
-                hapticFeedback.selection();
-                onSelectProject(project);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={styles.thumbnailContainer}>
-                {project.mediaType === 'video' ? (
-                  <View style={styles.videoPlaceholder}>
-                    <Text style={styles.videoIcon}>🎥</Text>
-                  </View>
-                ) : (
-                  <Image
-                    source={{ uri: project.leftUri }}
-                    style={styles.thumbnail}
-                    resizeMode="cover"
+        return (
+          <Pressable
+            key={project.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${project.title}`}
+            onPress={() => {
+              hapticFeedback.selection();
+              onSelectProject(project);
+            }}
+            onLongPress={() => requestDelete(project)}
+            style={({ pressed }) => [
+              styles.card,
+              selected && styles.selectedCard,
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={styles.thumbnailWrap}>
+              {project.mediaType === 'photo' ? (
+                <Image
+                  source={{ uri: project.leftUri }}
+                  style={styles.thumbnail}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.videoPlaceholder}>
+                  <SymbolView
+                    name="video.fill"
+                    size={24}
+                    tintColor="rgba(255,255,255,0.82)"
                   />
-                )}
-                <View style={styles.tag}>
-                  <Text style={styles.tagText}>
-                    {project.mediaType === 'video'
-                      ? '🎥 Spatial Video'
-                      : project.sourceType === 'camera_chacha'
-                      ? '📸 Cha-Cha 3D'
-                      : project.sourceType === 'demo'
-                      ? '✨ Demo'
-                      : '✂️ Spatial SBS'}
-                  </Text>
                 </View>
-              </View>
+              )}
 
-              <View style={styles.metaRow}>
-                <Text style={[styles.title, isSelected && styles.titleSelected]} numberOfLines={1}>
-                  {project.title}
+              <View style={styles.typeBadge}>
+                <SymbolView
+                  name={project.mediaType === 'video' ? 'video.fill' : 'photo.fill'}
+                  size={10}
+                  tintColor="#FFFFFF"
+                />
+                <Text style={styles.typeText}>
+                  {project.spatialEncoding === 'mv-hevc'
+                    ? 'SPATIAL'
+                    : project.sourceType === 'camera_chacha'
+                    ? 'CAPTURED'
+                    : project.sourceType === 'demo'
+                    ? 'DEMO'
+                    : 'STEREO'}
                 </Text>
-                {!isDemo && (
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => {
-                      hapticFeedback.medium();
-                      onDeleteProject(project.id);
-                    }}
-                  >
-                    <Text style={styles.deleteText}>🗑️</Text>
-                  </TouchableOpacity>
-                )}
               </View>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
+            </View>
+
+            <View style={styles.meta}>
+              <Text numberOfLines={1} style={styles.title}>
+                {project.title}
+              </Text>
+              <Text style={styles.hint}>
+                {project.sourceType === 'demo'
+                  ? 'Built-in sample'
+                  : 'Hold for options'}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    marginVertical: 6,
-  },
-  sectionHeader: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginHorizontal: 16,
-    marginBottom: 8,
-  },
-  scrollContainer: {
-    paddingHorizontal: 16,
+  rail: {
     gap: 12,
+    paddingRight: 8,
   },
-  itemCard: {
-    width: 140,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 16,
+  card: {
+    width: 164,
+  },
+  selectedCard: {},
+  pressed: {
+    opacity: 0.68,
+  },
+  thumbnailWrap: {
+    height: 112,
+    borderRadius: 18,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.25)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.1)',
-    borderRightColor: 'rgba(255, 255, 255, 0.1)',
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  itemCardSelected: {
-    borderColor: COLORS.blue,
-    backgroundColor: 'rgba(10, 132, 255, 0.2)',
-  },
-  thumbnailContainer: {
-    width: '100%',
-    height: 90,
-    backgroundColor: '#0a0a0e',
-    position: 'relative',
+    backgroundColor: 'rgb(19,19,21)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
   },
   thumbnail: {
     width: '100%',
     height: '100%',
   },
   videoPlaceholder: {
-    width: '100%',
-    height: '100%',
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#121218',
   },
-  videoIcon: {
-    fontSize: 32,
-  },
-  tag: {
+  typeBadge: {
     position: 'absolute',
-    bottom: 4,
-    left: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  tagText: {
-    color: COLORS.cyan,
-    fontSize: 9,
-    fontWeight: '800',
-  },
-  metaRow: {
+    left: 8,
+    bottom: 8,
+    height: 23,
+    paddingHorizontal: 8,
+    borderRadius: 11.5,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 8,
+    gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+  },
+  typeText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.65,
+  },
+  meta: {
+    paddingHorizontal: 2,
+    paddingTop: 7,
   },
   title: {
-    flex: 1,
-    color: COLORS.textPrimary,
-    fontSize: 12,
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '600',
-    marginRight: 4,
+    letterSpacing: -0.15,
   },
-  titleSelected: {
-    color: COLORS.cyan,
-    fontWeight: '700',
-  },
-  deleteButton: {
-    padding: 2,
-  },
-  deleteText: {
-    fontSize: 12,
+  hint: {
+    color: 'rgba(235,235,245,0.42)',
+    fontSize: 10,
+    marginTop: 2,
   },
 });

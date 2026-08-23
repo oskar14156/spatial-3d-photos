@@ -1,359 +1,288 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
+  Pressable,
   StyleSheet,
-  TouchableOpacity,
+  Text,
+  View,
 } from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
-import { StereoPair, ViewMode } from '../../types';
-import { COLORS } from '../../constants';
+import { SymbolView } from 'expo-symbols';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import type { StereoPair, ViewMode } from '../../types';
+import { NativeGlass } from '../common/NativeGlass';
 import { hapticFeedback } from '../../utils/haptics';
 
-interface SpatialVideoPlayerProps {
+type Props = {
   stereoPair: StereoPair;
   viewMode: ViewMode;
   isLandscape?: boolean;
   isVRMode?: boolean;
-}
+};
 
-export const SpatialVideoPlayer: React.FC<SpatialVideoPlayerProps> = ({
+export const SpatialVideoPlayer: React.FC<Props> = ({
   stereoPair,
   viewMode,
-  isLandscape = false,
-  isVRMode = false,
 }) => {
-  const leftVideoRef = useRef<Video | null>(null);
-  const rightVideoRef = useRef<Video | null>(null);
+  const inverted = stereoPair.alignment.invertEyes;
+  const leftUri = inverted ? stereoPair.rightUri : stereoPair.leftUri;
+  const rightUri = inverted ? stereoPair.leftUri : stereoPair.rightUri;
 
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
-  const [positionMs, setPositionMs] = useState<number>(0);
-  const [durationMs, setDurationMs] = useState<number>(1000);
-  const [isMuted, setIsMuted] = useState<boolean>(true);
+  const left = useVideoPlayer(leftUri, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
 
-  const { alignment } = stereoPair;
-  const leftUri = alignment.invertEyes ? stereoPair.rightUri : stereoPair.leftUri;
-  const rightUri = alignment.invertEyes ? stereoPair.leftUri : stereoPair.rightUri;
+  const right = useVideoPlayer(rightUri, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
 
-  const handleTogglePlay = async () => {
-    hapticFeedback.light();
-    if (isPlaying) {
-      await leftVideoRef.current?.pauseAsync();
-      await rightVideoRef.current?.pauseAsync();
-      setIsPlaying(false);
-    } else {
-      await leftVideoRef.current?.playAsync();
-      await rightVideoRef.current?.playAsync();
-      setIsPlaying(true);
-    }
-  };
+  const audio = useVideoPlayer(stereoPair.originalUri || leftUri, (player) => {
+    player.loop = true;
+    player.muted = false;
+    player.play();
+  });
 
-  const handleToggleMute = async () => {
-    hapticFeedback.light();
-    const newMuted = !isMuted;
-    await leftVideoRef.current?.setIsMutedAsync(newMuted);
-    setIsMuted(newMuted);
-  };
+  const [playing, setPlaying] = useState(true);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(1);
+  const [muted, setMuted] = useState(false);
 
-  const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-    if (status.isLoaded) {
-      setPositionMs(status.positionMillis);
-      if (status.durationMillis) {
-        setDurationMs(status.durationMillis);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const master = left.currentTime || 0;
+      const d = left.duration || 1;
+      setTime(master);
+      setDuration(d);
+
+      if (Math.abs((right.currentTime || 0) - master) > 0.045) {
+        right.currentTime = master;
       }
-      setIsPlaying(status.isPlaying);
+      if (Math.abs((audio.currentTime || 0) - master) > 0.080) {
+        audio.currentTime = master;
+      }
+    }, 120);
+
+    return () => clearInterval(timer);
+  }, [audio, left, right]);
+
+  const leftTransform = useMemo(
+    () => [
+      { translateX: -stereoPair.alignment.horizontalDisparity / 2 },
+      { translateY: -stereoPair.alignment.verticalOffset / 2 },
+      { rotate: `${-stereoPair.alignment.rotationAngle / 2}deg` },
+      { scale: stereoPair.alignment.zoomScale },
+    ],
+    [stereoPair.alignment]
+  );
+
+  const rightTransform = useMemo(
+    () => [
+      { translateX: stereoPair.alignment.horizontalDisparity / 2 },
+      { translateY: stereoPair.alignment.verticalOffset / 2 },
+      { rotate: `${stereoPair.alignment.rotationAngle / 2}deg` },
+      { scale: stereoPair.alignment.zoomScale },
+    ],
+    [stereoPair.alignment]
+  );
+
+  const togglePlay = () => {
+    hapticFeedback.light();
+    if (playing) {
+      left.pause();
+      right.pause();
+      audio.pause();
+    } else {
+      const master = left.currentTime || 0;
+      right.currentTime = master;
+      audio.currentTime = master;
+      left.play();
+      right.play();
+      audio.play();
     }
+    setPlaying(!playing);
   };
 
-  const leftTransform = [
-    { translateX: -alignment.horizontalDisparity / 2 },
-    { translateY: -alignment.verticalOffset / 2 },
-    { rotate: `${-alignment.rotationAngle / 2}deg` },
-    { scale: alignment.zoomScale },
-  ];
+  const toggleMute = () => {
+    hapticFeedback.light();
+    audio.muted = !muted;
+    setMuted(!muted);
+  };
 
-  const rightTransform = [
-    { translateX: alignment.horizontalDisparity / 2 },
-    { translateY: alignment.verticalOffset / 2 },
-    { rotate: `${alignment.rotationAngle / 2}deg` },
-    { scale: alignment.zoomScale },
-  ];
+  const seek = (delta: number) => {
+    const target = Math.max(0, Math.min(duration, time + delta));
+    left.currentTime = target;
+    right.currentTime = target;
+    audio.currentTime = target;
+  };
 
-  const progressPercent = durationMs > 0 ? (positionMs / durationMs) * 100 : 0;
+  const cross = viewMode === 'cross_eye';
 
   return (
-    <View style={[styles.container, isLandscape && styles.containerLandscape]}>
-      <View
-        style={[
-          styles.viewportContainer,
-          isLandscape && styles.viewportLandscape,
-          isVRMode && styles.viewportVR,
-        ]}
-      >
+    <View style={styles.root}>
+      <View style={styles.viewport}>
         {(viewMode === 'sbs' || viewMode === 'cross_eye') && (
-          <View style={styles.dualVideoRow}>
-            <View style={styles.halfVideoPane}>
-              <Video
-                ref={(ref) => {
-                  leftVideoRef.current = ref;
-                }}
-                source={{ uri: viewMode === 'cross_eye' ? rightUri : leftUri }}
-                style={[styles.videoElement, { transform: leftTransform }]}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={isPlaying}
-                isLooping
-                isMuted={isMuted}
-                onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+          <View style={styles.dual}>
+            <View style={styles.eye}>
+              <VideoView
+                player={cross ? right : left}
+                style={[styles.video, { transform: leftTransform }]}
+                contentFit="contain"
+                nativeControls={false}
               />
-              <View style={styles.eyeBadge}>
-                <Text style={styles.eyeBadgeText}>
-                  {viewMode === 'cross_eye' ? 'R (Cross)' : 'L (Left)'}
-                </Text>
-              </View>
             </View>
-
-            <View style={styles.videoDivider} />
-
-            <View style={styles.halfVideoPane}>
-              <Video
-                ref={(ref) => {
-                  rightVideoRef.current = ref;
-                }}
-                source={{ uri: viewMode === 'cross_eye' ? leftUri : rightUri }}
-                style={[styles.videoElement, { transform: rightTransform }]}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={isPlaying}
-                isLooping
-                isMuted={true}
+            <View style={styles.divider} />
+            <View style={styles.eye}>
+              <VideoView
+                player={cross ? left : right}
+                style={[styles.video, { transform: rightTransform }]}
+                contentFit="contain"
+                nativeControls={false}
               />
-              <View style={styles.eyeBadge}>
-                <Text style={styles.eyeBadgeText}>
-                  {viewMode === 'cross_eye' ? 'L (Cross)' : 'R (Right)'}
-                </Text>
-              </View>
             </View>
           </View>
         )}
 
-        {viewMode === 'anaglyph' && (
-          <View style={styles.singleVideoPane}>
-            <Video
-              ref={(ref) => {
-                leftVideoRef.current = ref;
-              }}
-              source={{ uri: leftUri }}
-              style={[styles.videoElement, { transform: leftTransform }]}
-              resizeMode={ResizeMode.CONTAIN}
-              shouldPlay={isPlaying}
-              isLooping
-              isMuted={isMuted}
-              onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-            />
-            <View style={[styles.anaglyphFilter, { backgroundColor: 'rgba(255, 0, 0, 0.45)' }]} />
-
-            <View style={styles.anaglyphOverlayLayer}>
-              <Video
-                ref={(ref) => {
-                  rightVideoRef.current = ref;
-                }}
-                source={{ uri: rightUri }}
-                style={[styles.videoElement, { transform: rightTransform }]}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={isPlaying}
-                isLooping
-                isMuted={true}
-              />
-              <View style={[styles.anaglyphFilter, { backgroundColor: 'rgba(0, 229, 255, 0.45)' }]} />
-            </View>
-          </View>
+        {viewMode !== 'sbs' && viewMode !== 'cross_eye' && (
+          <VideoView
+            player={left}
+            style={[styles.video, { transform: leftTransform }]}
+            contentFit="contain"
+            nativeControls={false}
+          />
         )}
 
-        {(viewMode === 'wigglegram' || viewMode === 'parallax_tilt') && (
-          <View style={styles.singleVideoPane}>
-            <Video
-              ref={(ref) => {
-                leftVideoRef.current = ref;
-              }}
-              source={{ uri: leftUri }}
-              style={[styles.videoElement, { transform: leftTransform }]}
-              resizeMode={ResizeMode.CONTAIN}
-              shouldPlay={isPlaying}
-              isLooping
-              isMuted={isMuted}
-              onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-            />
-          </View>
-        )}
-
-        <View style={styles.spatialTagBadge}>
-          <Text style={styles.spatialTagText}>🎥 iPhone Spatial Video 3D</Text>
-        </View>
+        <NativeGlass style={styles.badge}>
+          <SymbolView name="viewfinder.rectangular" size={11} tintColor="#FFFFFF" />
+          <Text style={styles.badgeText}>
+            {stereoPair.spatialEncoding === 'mv-hevc' ? 'MV-HEVC' : 'STEREO VIDEO'}
+          </Text>
+        </NativeGlass>
       </View>
 
-      <View style={styles.videoControls}>
-        <View style={styles.progressBarBackground}>
-          <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-        </View>
+      <View style={styles.scrubber}>
+        <View
+          style={[
+            styles.progress,
+            { width: `${Math.max(0, Math.min(100, (time / duration) * 100))}%` },
+          ]}
+        />
+      </View>
 
-        <View style={styles.controlsRow}>
-          <TouchableOpacity style={styles.controlButton} onPress={handleTogglePlay}>
-            <Text style={styles.controlButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
-          </TouchableOpacity>
+      <View style={styles.controls}>
+        <Pressable onPress={() => seek(-5)} hitSlop={8}>
+          <SymbolView name="gobackward.5" size={20} tintColor="#FFFFFF" />
+        </Pressable>
+        <Pressable onPress={togglePlay} style={styles.play}>
+          <SymbolView
+            name={playing ? 'pause.fill' : 'play.fill'}
+            size={18}
+            tintColor="#000000"
+          />
+        </Pressable>
+        <Pressable onPress={() => seek(5)} hitSlop={8}>
+          <SymbolView name="goforward.5" size={20} tintColor="#FFFFFF" />
+        </Pressable>
 
-          <Text style={styles.timeText}>
-            {Math.floor(positionMs / 1000)}s / {Math.floor(durationMs / 1000)}s
-          </Text>
+        <Text style={styles.time}>
+          {formatTime(time)} / {formatTime(duration)}
+        </Text>
 
-          <TouchableOpacity style={styles.controlButton} onPress={handleToggleMute}>
-            <Text style={styles.controlButtonText}>{isMuted ? '🔇' : '🔊'}</Text>
-          </TouchableOpacity>
-        </View>
+        <Pressable onPress={toggleMute} hitSlop={8}>
+          <SymbolView
+            name={muted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'}
+            size={19}
+            tintColor="#FFFFFF"
+          />
+        </Pressable>
       </View>
     </View>
   );
 };
 
+function formatTime(seconds: number) {
+  if (!Number.isFinite(seconds)) return '0:00';
+  const value = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(value / 60);
+  const s = value % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 const styles = StyleSheet.create({
-  container: {
+  root: {
     width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  containerLandscape: {
-    flex: 1,
-    height: '100%',
-  },
-  viewportContainer: {
+  viewport: {
     width: '100%',
     height: 320,
-    backgroundColor: '#050507',
     borderRadius: 22,
     overflow: 'hidden',
-    borderWidth: 1.2,
-    borderTopColor: 'rgba(255, 255, 255, 0.4)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.18)',
-    borderRightColor: 'rgba(255, 255, 255, 0.18)',
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
-  },
-  viewportLandscape: {
-    height: '85%',
-  },
-  viewportVR: {
-    height: 380,
     backgroundColor: '#000000',
   },
-  dualVideoRow: {
-    flexDirection: 'row',
-    width: '100%',
-    height: '100%',
-  },
-  halfVideoPane: {
+  dual: {
     flex: 1,
-    height: '100%',
-    backgroundColor: '#000000',
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: 'row',
   },
-  singleVideoPane: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#000000',
-    position: 'relative',
+  eye: {
+    flex: 1,
+    overflow: 'hidden',
   },
-  videoElement: {
+  video: {
     width: '100%',
     height: '100%',
   },
-  videoDivider: {
-    width: 1,
-    height: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  divider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
-  anaglyphFilter: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  anaglyphOverlayLayer: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.85,
-  },
-  eyeBadge: {
-    position: 'absolute',
-    bottom: 8,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(15, 15, 20, 0.75)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  eyeBadgeText: {
-    color: COLORS.cyan,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  spatialTagBadge: {
+  badge: {
     position: 'absolute',
     top: 10,
     left: 10,
-    backgroundColor: 'rgba(10, 132, 255, 0.8)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  spatialTagText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  videoControls: {
-    width: '100%',
-    marginTop: 10,
-    gap: 6,
-  },
-  progressBarBackground: {
-    width: '100%',
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: COLORS.cyan,
-  },
-  controlsRow: {
+    height: 27,
+    paddingHorizontal: 9,
+    borderRadius: 13.5,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
+    gap: 5,
   },
-  controlButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.65,
+  },
+  scrubber: {
+    height: 3,
+    borderRadius: 1.5,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    marginTop: 10,
+  },
+  progress: {
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+  },
+  controls: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 17,
+    paddingHorizontal: 5,
+  },
+  play: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: '#FFFFFF',
   },
-  controlButtonText: {
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  timeText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
+  time: {
+    flex: 1,
+    color: 'rgba(235,235,245,0.52)',
+    fontSize: 11,
     fontVariant: ['tabular-nums'],
-    fontWeight: '700',
   },
 });

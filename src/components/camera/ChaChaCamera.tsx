@@ -1,336 +1,337 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
   ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
   useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { StereobaseGuidanceHUD } from './StereobaseGuidanceHUD';
-import { HorizonLevelIndicator } from './HorizonLevelIndicator';
+import { SymbolView } from 'expo-symbols';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChaChaReviewModal } from './ChaChaReviewModal';
-import { calculateStereoBaseline, formatBaselineInstruction } from '../../utils/stereobaseCalculator';
-import { SubjectPreset, SubjectPresetId, StereoPair } from '../../types';
-import { COLORS } from '../../constants';
-import { t } from '../../i18n/translations';
+import { HorizonLevelIndicator } from './HorizonLevelIndicator';
+import { IOSIconButton } from '../common/IOSIconButton';
+import { NativeGlass } from '../common/NativeGlass';
+import {
+  SUBJECT_PRESETS,
+  formatBaselineInstruction,
+  recommendStereoBaseline,
+} from '../../utils/stereobaseCalculator';
+import type { StereoPair } from '../../types';
 import { hapticFeedback } from '../../utils/haptics';
+import { SpatialDepthView } from '../../../modules/spatial-depth';
 
-interface ChaChaCameraProps {
+type Props = {
   onCaptureComplete: (pair: StereoPair) => void;
   onClose: () => void;
-}
+};
 
-export const ChaChaCamera: React.FC<ChaChaCameraProps> = ({
+export const ChaChaCamera: React.FC<Props> = ({
   onCaptureComplete,
   onClose,
 }) => {
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const isLandscape = windowWidth > windowHeight;
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView | null>(null);
 
-  // Cha-Cha Capture Steps: 1 = Left Eye, 2 = Right Eye
-  const [captureStep, setCaptureStep] = useState<1 | 2>(1);
-  const [leftPhotoUri, setLeftPhotoUri] = useState<string | null>(null);
-  const [rightPhotoUri, setRightPhotoUri] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [ghostOpacity, setGhostOpacity] = useState<number>(0.45);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [leftUri, setLeftUri] = useState<string | null>(null);
+  const [rightUri, setRightUri] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState(false);
+  const [ghostOpacity] = useState(0.36);
 
-  // Subject Distance & Baseline Calculator State
-  const [selectedPresetId, setSelectedPresetId] = useState<SubjectPresetId>('portrait');
-  const [customDistanceMeters, setCustomDistanceMeters] = useState<number>(2.0);
+  const [distanceMeters, setDistanceMeters] = useState(2);
+  const [depthMode, setDepthMode] = useState(false);
+  const [lidarAvailable, setLidarAvailable] = useState<boolean | null>(null);
+  const [depthConfidence, setDepthConfidence] =
+    useState<'low' | 'medium' | 'high'>('low');
 
-  // Review Modal State
-  const [isReviewModalVisible, setIsReviewModalVisible] = useState<boolean>(false);
+  const rec = useMemo(
+    () => recommendStereoBaseline(distanceMeters),
+    [distanceMeters]
+  );
+  const instruction = formatBaselineInstruction(rec.baselineMeters, 'de');
 
-  const currentBaseline = calculateStereoBaseline(customDistanceMeters, 30);
-  const instruction = formatBaselineInstruction(currentBaseline, 'de');
-
-  const handleSelectPreset = (preset: SubjectPreset) => {
-    setSelectedPresetId(preset.id);
-    setCustomDistanceMeters(preset.defaultSubjectDistanceMeters);
-  };
-
-  const handleCapture = async () => {
-    if (!cameraRef.current || isProcessing) return;
-
+  const capture = async () => {
+    if (!cameraRef.current || busy || depthMode) return;
     try {
+      setBusy(true);
       hapticFeedback.heavy();
-      setIsProcessing(true);
-
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.92,
+        quality: 1,
         skipProcessing: false,
       });
+      if (!photo?.uri) return;
 
-      if (!photo?.uri) {
-        setIsProcessing(false);
-        return;
-      }
-
-      if (captureStep === 1) {
-        // Step 1: Left Photo Captured! Move to Step 2
-        setLeftPhotoUri(photo.uri);
-        setCaptureStep(2);
-        setIsProcessing(false);
+      if (step === 1) {
+        setLeftUri(photo.uri);
+        setStep(2);
         hapticFeedback.success();
       } else {
-        // Step 2: Right Photo Captured!
-        setRightPhotoUri(photo.uri);
-        setIsProcessing(false);
-        setIsReviewModalVisible(true);
+        setRightUri(photo.uri);
+        setReview(true);
         hapticFeedback.success();
       }
-    } catch (err) {
-      console.error('Failed to take picture:', err);
-      setIsProcessing(false);
+    } catch (error) {
+      Alert.alert('Camera error', 'The photo could not be captured.');
+      console.error(error);
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleResetStep = () => {
-    hapticFeedback.medium();
-    setCaptureStep(1);
-    setLeftPhotoUri(null);
-    setRightPhotoUri(null);
+  const reset = () => {
+    setStep(1);
+    setLeftUri(null);
+    setRightUri(null);
+    setReview(false);
   };
 
-  // Permission handling
   if (!permission) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={COLORS.blue} />
-      </View>
-    );
+    return <View style={styles.permission}><ActivityIndicator color="#0A84FF" /></View>;
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.permTitle}>{t('camera_permission_required')}</Text>
-        <Text style={styles.permDesc}>{t('camera_permission_desc')}</Text>
-        <TouchableOpacity style={styles.permButton} onPress={requestPermission}>
-          <Text style={styles.permButtonText}>Kamerazugriff erlauben</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.closePermButton} onPress={onClose}>
-          <Text style={styles.closePermText}>{t('close')}</Text>
-        </TouchableOpacity>
+      <View style={[styles.permission, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
+        <SymbolView name="camera.fill" tintColor="#FFFFFF" size={36} style={styles.permissionIcon} />
+        <Text style={styles.permissionTitle}>Camera access</Text>
+        <Text style={styles.permissionBody}>
+          Spatial3D needs the rear camera for stereoscopic capture.
+        </Text>
+        <Pressable style={styles.permissionPrimary} onPress={requestPermission}>
+          <Text style={styles.permissionPrimaryText}>Allow Camera</Text>
+        </Pressable>
+        <Pressable onPress={onClose} hitSlop={12}>
+          <Text style={styles.permissionCancel}>Cancel</Text>
+        </Pressable>
       </View>
     );
   }
 
-  const cameraHeight = isLandscape ? windowHeight : windowHeight * 0.52;
-
   return (
-    <View style={[styles.container, isLandscape && styles.containerLandscape]}>
-      {/* Live Camera Viewfinder */}
-      <View style={[styles.cameraContainer, { height: cameraHeight }, isLandscape && styles.cameraLandscape]}>
-        <CameraView
-          ref={(ref) => {
-            cameraRef.current = ref;
+    <View style={styles.root}>
+      {depthMode ? (
+        <SpatialDepthView
+          active
+          style={StyleSheet.absoluteFill}
+          onAvailabilityChange={(event) =>
+            setLidarAvailable(event.nativeEvent.available)
+          }
+          onDistanceChange={(event) => {
+            setDistanceMeters(event.nativeEvent.meters);
+            setDepthConfidence(event.nativeEvent.confidence);
           }}
-          style={styles.camera}
+        />
+      ) : (
+        <CameraView
+          ref={(ref) => { cameraRef.current = ref; }}
+          style={StyleSheet.absoluteFill}
           facing="back"
-        >
-          {/* Grid Overlay */}
-          <View style={styles.gridOverlay}>
-            <View style={styles.gridRow}>
-              <View style={styles.gridCell} />
-              <View style={styles.gridCell} />
-              <View style={styles.gridCell} />
-            </View>
-            <View style={styles.gridRow}>
-              <View style={styles.gridCell} />
-              <View style={styles.gridCell} />
-              <View style={styles.gridCell} />
-            </View>
-            <View style={styles.gridRow}>
-              <View style={styles.gridCell} />
-              <View style={styles.gridCell} />
-              <View style={styles.gridCell} />
-            </View>
-          </View>
+        />
+      )}
 
-          {/* Onion Skin / Ghosting Overlay for Step 2 */}
-          {captureStep === 2 && leftPhotoUri && (
-            <View style={[styles.ghostOverlay, { opacity: ghostOpacity }]} pointerEvents="none">
-              <Image source={{ uri: leftPhotoUri }} style={styles.ghostImage} resizeMode="cover" />
-            </View>
-          )}
-
-          {/* Top Liquid Bar: Close Button, Step Badge, Horizon Level */}
-          <View style={styles.topControls}>
-            <TouchableOpacity
-              style={styles.liquidCircleButton}
-              onPress={() => {
-                hapticFeedback.light();
-                onClose();
-              }}
-            >
-              <Text style={styles.circleButtonText}>✕</Text>
-            </TouchableOpacity>
-
-            {/* Step Status Pill */}
-            <View style={[styles.liquidStepPill, captureStep === 2 && styles.liquidStepPillStep2]}>
-              <Text style={styles.stepPillText}>
-                {captureStep === 1 ? '1/2 LINKS' : '2/2 RECHTS'}
-              </Text>
-            </View>
-
-            {/* Real-time Horizon Bubble Level */}
-            <HorizonLevelIndicator />
-          </View>
-
-          {/* Step 2 Move Guidance Overlay */}
-          {captureStep === 2 && (
-            <View style={styles.step2GuideOverlay}>
-              <View style={styles.liquidArrowBanner}>
-                <Text style={styles.arrowSymbol}>⬅ ⬅ ⬅</Text>
-                <Text style={styles.moveInstructionText}>
-                  {instruction.hint}
-                </Text>
-                <Text style={styles.moveSubText}>
-                  Bewege dich {instruction.formatted} nach links & richte das Geisterbild aus.
-                </Text>
-              </View>
-
-              {/* Ghost Opacity Controller */}
-              <View style={styles.ghostOpacityRow}>
-                <Text style={styles.opacityLabel}>Ghost:</Text>
-                {[0.25, 0.45, 0.65].map((val) => (
-                  <TouchableOpacity
-                    key={val}
-                    style={[
-                      styles.opacityPill,
-                      ghostOpacity === val && styles.opacityPillActive,
-                    ]}
-                    onPress={() => {
-                      hapticFeedback.selection();
-                      setGhostOpacity(val);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.opacityPillText,
-                        ghostOpacity === val && styles.opacityPillTextActive,
-                      ]}
-                    >
-                      {Math.round(val * 100)}%
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* In Landscape: Floating Shutter & Guidance Rails */}
-          {isLandscape && (
-            <View style={styles.landscapeSideControls}>
-              <TouchableOpacity
-                style={[
-                  styles.shutterOuterRing,
-                  captureStep === 2 && styles.shutterOuterRingStep2,
-                ]}
-                onPress={handleCapture}
-                disabled={isProcessing}
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.shutterInnerCircle,
-                    captureStep === 2 && styles.shutterInnerCircleStep2,
-                  ]}
-                >
-                  {isProcessing ? (
-                    <ActivityIndicator color="#000000" size="small" />
-                  ) : (
-                    <Text style={styles.shutterIcon}>
-                      {captureStep === 1 ? '📸 L' : '📸 R'}
-                    </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            </View>
-          )}
-        </CameraView>
-      </View>
-
-      {/* Bottom Control Deck (Portrait Mode) */}
-      {!isLandscape && (
-        <View style={styles.bottomDeck}>
-          <StereobaseGuidanceHUD
-            selectedPresetId={selectedPresetId}
-            onSelectPreset={handleSelectPreset}
-            customDistanceMeters={customDistanceMeters}
-            onChangeDistance={setCustomDistanceMeters}
+      {!depthMode && step === 2 && leftUri && (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <Image
+            source={{ uri: leftUri }}
+            resizeMode="cover"
+            style={[StyleSheet.absoluteFill, { opacity: ghostOpacity }]}
           />
-
-          {/* Shutter Bar */}
-          <View style={styles.shutterRow}>
-            {captureStep === 2 ? (
-              <TouchableOpacity
-                style={styles.retakeButton}
-                onPress={handleResetStep}
-              >
-                <Text style={styles.retakeText}>↺ {t('camera_retake_step1')}</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={{ width: 80 }} />
-            )}
-
-            {/* Main Camera Shutter Button */}
-            <TouchableOpacity
-              style={[
-                styles.shutterOuterRing,
-                captureStep === 2 && styles.shutterOuterRingStep2,
-              ]}
-              onPress={handleCapture}
-              disabled={isProcessing}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[
-                  styles.shutterInnerCircle,
-                  captureStep === 2 && styles.shutterInnerCircleStep2,
-                ]}
-              >
-                {isProcessing ? (
-                  <ActivityIndicator color="#000000" size="small" />
-                ) : (
-                  <Text style={styles.shutterIcon}>
-                    {captureStep === 1 ? '📸 L' : '📸 R'}
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-
-            <View style={{ width: 80 }} />
-          </View>
         </View>
       )}
 
-      {/* Cha-Cha Review Modal */}
-      {leftPhotoUri && rightPhotoUri && (
+      {!depthMode && <View pointerEvents="none" style={styles.grid}>
+        <View style={[styles.gridLineV, { left: '33.333%' }]} />
+        <View style={[styles.gridLineV, { left: '66.666%' }]} />
+        <View style={[styles.gridLineH, { top: '33.333%' }]} />
+        <View style={[styles.gridLineH, { top: '66.666%' }]} />
+      </View>}
+
+      <View style={[styles.topBar, { top: insets.top + 8 }]}>
+        <IOSIconButton symbol="xmark" accessibilityLabel="Close camera" onPress={onClose} />
+        <NativeGlass style={styles.stepPill}>
+          <Text style={styles.stepText}>
+            {depthMode ? 'LiDAR DISTANCE' : step === 1 ? 'LEFT · 1 OF 2' : 'RIGHT · 2 OF 2'}
+          </Text>
+        </NativeGlass>
+        <IOSIconButton
+          symbol={depthMode ? 'camera.fill' : 'ruler.fill'}
+          accessibilityLabel={depthMode ? 'Return to camera' : 'Measure with LiDAR'}
+          selected={depthMode}
+          onPress={() => setDepthMode((v) => !v)}
+        />
+      </View>
+
+      {!depthMode && (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.level,
+            { top: insets.top + (landscape ? 56 : 72) },
+          ]}
+        >
+          <HorizonLevelIndicator />
+        </View>
+      )}
+
+      {depthMode && (
+        <View style={styles.depthCenter} pointerEvents="none">
+          <View style={styles.reticleOuter}>
+            <View style={styles.reticleInner} />
+          </View>
+          <NativeGlass style={styles.depthReadout}>
+            <Text style={styles.depthValue}>
+              {lidarAvailable === false ? 'LiDAR unavailable' : `${distanceMeters.toFixed(distanceMeters < 10 ? 2 : 1)} m`}
+            </Text>
+            <Text style={styles.depthMeta}>
+              {lidarAvailable === false
+                ? 'Use a manual distance preset'
+                : `${depthConfidence.toUpperCase()} CONFIDENCE · aim at subject`}
+            </Text>
+          </NativeGlass>
+        </View>
+      )}
+
+      {step === 2 && !depthMode && (
+        <View style={[styles.moveCardWrap, { bottom: insets.bottom + (landscape ? 92 : 172) }]}>
+          <NativeGlass style={styles.moveCard}>
+            <View>
+              <Text style={styles.moveEyebrow}>MOVE SIDEWAYS</Text>
+              <Text style={styles.moveValue}>{instruction.formatted}</Text>
+            </View>
+            <Text style={styles.moveHint}>{instruction.hint}</Text>
+          </NativeGlass>
+        </View>
+      )}
+
+      <View
+        style={[
+          styles.bottomWrap,
+          { bottom: insets.bottom + 10 },
+          landscape && styles.bottomWrapLandscape,
+        ]}
+      >
+        <NativeGlass style={styles.bottomGlass}>
+          <View style={styles.distanceRow}>
+            <Pressable
+              onPress={() => setDepthMode(true)}
+              style={styles.distanceButton}
+            >
+              <SymbolView name="ruler.fill" tintColor="#0A84FF" size={15} />
+              <Text style={styles.distanceText}>
+                {distanceMeters < 10 ? distanceMeters.toFixed(2) : distanceMeters.toFixed(0)} m
+              </Text>
+              <Text style={styles.distanceLabel}>subject</Text>
+            </Pressable>
+
+            <View style={styles.baselineDivider} />
+
+            <View style={styles.baselineSummary}>
+              <Text style={styles.baselineLabel}>STEREO BASE</Text>
+              <Text style={styles.baselineValue}>{instruction.formatted}</Text>
+            </View>
+          </View>
+
+          {!landscape && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.presets}
+            >
+              {SUBJECT_PRESETS.map((preset) => {
+                const active =
+                  Math.abs(distanceMeters - preset.defaultSubjectDistanceMeters) < 0.001;
+                return (
+                  <Pressable
+                    key={preset.id}
+                    onPress={() => {
+                      setDistanceMeters(preset.defaultSubjectDistanceMeters);
+                      hapticFeedback.selection();
+                    }}
+                    style={[styles.preset, active && styles.presetActive]}
+                  >
+                    <Text style={[styles.presetText, active && styles.presetTextActive]}>
+                      {preset.id === 'macro'
+                        ? 'Macro'
+                        : preset.id === 'portrait'
+                        ? 'Portrait'
+                        : preset.id === 'room'
+                        ? 'Room'
+                        : preset.id === 'architecture'
+                        ? 'Building'
+                        : 'Mountain'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          <View style={styles.shutterRow}>
+            <View style={styles.sideAction}>
+              {step === 2 && !depthMode ? (
+                <Pressable onPress={reset} style={styles.smallAction}>
+                  <SymbolView name="arrow.counterclockwise" tintColor="#FFFFFF" size={17} />
+                  <Text style={styles.smallActionText}>Retake</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            {depthMode ? (
+              <Pressable
+                onPress={() => {
+                  hapticFeedback.success();
+                  setDepthMode(false);
+                }}
+                style={styles.useDistanceButton}
+              >
+                <Text style={styles.useDistanceText}>Use Distance</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={step === 1 ? 'Capture left image' : 'Capture right image'}
+                onPress={capture}
+                disabled={busy}
+                style={({ pressed }) => [
+                  styles.shutterOuter,
+                  pressed && styles.shutterPressed,
+                ]}
+              >
+                <View style={styles.shutterInner}>
+                  {busy ? <ActivityIndicator color="#000" /> : null}
+                </View>
+              </Pressable>
+            )}
+
+            <View style={styles.sideAction} />
+          </View>
+        </NativeGlass>
+      </View>
+
+      {leftUri && rightUri && (
         <ChaChaReviewModal
-          visible={isReviewModalVisible}
-          leftUri={leftPhotoUri}
-          rightUri={rightPhotoUri}
-          subjectDistanceMeters={customDistanceMeters}
-          baselineMeters={currentBaseline}
+          visible={review}
+          leftUri={leftUri}
+          rightUri={rightUri}
+          subjectDistanceMeters={distanceMeters}
+          baselineMeters={rec.baselineMeters}
           onSave={(pair) => {
-            setIsReviewModalVisible(false);
+            setReview(false);
             onCaptureComplete(pair);
           }}
-          onRetake={() => {
-            setIsReviewModalVisible(false);
-            handleResetStep();
-          }}
-          onClose={() => {
-            setIsReviewModalVisible(false);
-          }}
+          onRetake={reset}
+          onClose={() => setReview(false)}
         />
       )}
     </View>
@@ -338,268 +339,72 @@ export const ChaChaCamera: React.FC<ChaChaCameraProps> = ({
 };
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#000',
   },
-  containerLandscape: {
-    flexDirection: 'row',
-  },
-  centerContainer: {
+  permission: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 28,
   },
-  permTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  permDesc: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  permButton: {
-    backgroundColor: COLORS.blue,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-  },
-  permButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  closePermButton: {
-    marginTop: 16,
-    padding: 8,
-  },
-  closePermText: {
-    color: COLORS.textSecondary,
-    fontSize: 15,
-  },
-  cameraContainer: {
-    width: '100%',
-    backgroundColor: '#000000',
-    overflow: 'hidden',
-  },
-  cameraLandscape: {
-    flex: 1,
-  },
-  camera: {
-    width: '100%',
-    height: '100%',
-  },
-  gridOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'column',
-    opacity: 0.18,
-  },
-  gridRow: {
-    flex: 1,
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#FFFFFF',
-  },
-  gridCell: {
-    flex: 1,
-    borderRightWidth: 1,
-    borderRightColor: '#FFFFFF',
-  },
-  ghostOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  ghostImage: {
-    width: '100%',
-    height: '100%',
-  },
-  topControls: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    zIndex: 30,
-  },
-  liquidCircleButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(20, 20, 26, 0.75)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.4)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.2)',
-    borderRightColor: 'rgba(255, 255, 255, 0.2)',
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  circleButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  liquidStepPill: {
-    backgroundColor: 'rgba(10, 132, 255, 0.85)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  liquidStepPillStep2: {
-    backgroundColor: 'rgba(48, 209, 88, 0.9)',
-    borderColor: 'rgba(100, 255, 150, 0.4)',
-  },
-  stepPillText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  step2GuideOverlay: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 12,
-    alignItems: 'center',
-    gap: 8,
-  },
-  liquidArrowBanner: {
-    backgroundColor: 'rgba(10, 10, 15, 0.85)',
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    borderWidth: 1.2,
-    borderColor: COLORS.cyan,
-    shadowColor: COLORS.cyan,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-  },
-  arrowSymbol: {
-    color: COLORS.cyan,
-    fontSize: 18,
-    fontWeight: '900',
-    letterSpacing: 4,
-  },
-  moveInstructionText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  moveSubText: {
-    color: COLORS.textSecondary,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  ghostOpacityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(10, 10, 15, 0.8)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  opacityLabel: {
-    color: COLORS.textSecondary,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  opacityPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  opacityPillActive: {
-    backgroundColor: COLORS.cyan,
-  },
-  opacityPillText: {
-    color: COLORS.textSecondary,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  opacityPillTextActive: {
-    color: '#000000',
-  },
-  landscapeSideControls: {
-    position: 'absolute',
-    right: 20,
-    top: '50%',
-    transform: [{ translateY: -38 }],
-    zIndex: 40,
-  },
-  bottomDeck: {
-    flex: 1,
-    backgroundColor: '#000000',
-    paddingTop: 8,
-    justifyContent: 'space-between',
-    paddingBottom: 24,
-  },
-  shutterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-  },
-  retakeButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  retakeText: {
-    color: COLORS.red,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  shutterOuterRing: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 4,
-    borderColor: COLORS.blue,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    shadowColor: COLORS.blue,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 10,
-  },
-  shutterOuterRingStep2: {
-    borderColor: COLORS.green,
-    shadowColor: COLORS.green,
-  },
-  shutterInnerCircle: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shutterInnerCircleStep2: {
-    backgroundColor: COLORS.green,
-  },
-  shutterIcon: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#000000',
-  },
+  permissionIcon: { width: 44, height: 44, marginBottom: 18 },
+  permissionTitle: { color: '#FFF', fontSize: 26, fontWeight: '700', letterSpacing: -0.7 },
+  permissionBody: { color: 'rgba(235,235,245,0.60)', fontSize: 16, lineHeight: 22, textAlign: 'center', marginTop: 8, marginBottom: 24 },
+  permissionPrimary: { backgroundColor: '#0A84FF', borderRadius: 14, paddingHorizontal: 22, paddingVertical: 13, marginBottom: 16 },
+  permissionPrimaryText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  permissionCancel: { color: '#0A84FF', fontSize: 16, fontWeight: '600' },
+
+  grid: { ...StyleSheet.absoluteFillObject },
+  gridLineV: { position: 'absolute', top: 0, bottom: 0, width: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.20)' },
+  gridLineH: { position: 'absolute', left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.20)' },
+
+  topBar: { position: 'absolute', left: 14, right: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stepPill: { height: 34, paddingHorizontal: 14, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  stepText: { color: '#FFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.7 },
+
+  level: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+
+  depthCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  reticleOuter: { width: 72, height: 72, borderRadius: 36, borderWidth: 1, borderColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' },
+  reticleInner: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF' },
+  depthReadout: { marginTop: 18, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 10, alignItems: 'center' },
+  depthValue: { color: '#FFF', fontSize: 28, fontWeight: '700', letterSpacing: -0.7, fontVariant: ['tabular-nums'] },
+  depthMeta: { color: 'rgba(235,235,245,0.65)', marginTop: 3, fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+
+  moveCardWrap: { position: 'absolute', left: 16, right: 16, alignItems: 'center' },
+  moveCard: { width: '100%', maxWidth: 520, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 18 },
+  moveEyebrow: { color: '#30D158', fontSize: 10, fontWeight: '800', letterSpacing: 0.7 },
+  moveValue: { color: '#FFF', fontSize: 24, fontWeight: '700', letterSpacing: -0.5, marginTop: 1 },
+  moveHint: { flex: 1, color: 'rgba(235,235,245,0.72)', textAlign: 'right', fontSize: 12, lineHeight: 16 },
+
+  bottomWrap: { position: 'absolute', left: 12, right: 12, alignItems: 'center' },
+  bottomWrapLandscape: { left: undefined, right: 14, width: 410 },
+  bottomGlass: { width: '100%', maxWidth: 620, borderRadius: 28, padding: 12 },
+  distanceRow: { height: 45, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 },
+  distanceButton: { flexDirection: 'row', alignItems: 'baseline', gap: 5, flex: 1 },
+  distanceText: { color: '#FFF', fontSize: 17, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  distanceLabel: { color: 'rgba(235,235,245,0.55)', fontSize: 11, fontWeight: '600' },
+  baselineDivider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginVertical: 9, backgroundColor: 'rgba(255,255,255,0.12)' },
+  baselineSummary: { flex: 1, alignItems: 'flex-end' },
+  baselineLabel: { color: 'rgba(235,235,245,0.45)', fontSize: 9, fontWeight: '700', letterSpacing: 0.6 },
+  baselineValue: { color: '#FFF', marginTop: 1, fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
+
+  presets: { gap: 7, paddingVertical: 8 },
+  preset: { borderRadius: 13, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: 'rgba(255,255,255,0.07)' },
+  presetActive: { backgroundColor: 'rgba(10,132,255,0.22)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(90,170,255,0.55)' },
+  presetText: { color: 'rgba(235,235,245,0.66)', fontSize: 12, fontWeight: '600' },
+  presetTextActive: { color: '#FFF' },
+
+  shutterRow: { height: 72, marginTop: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sideAction: { width: 92, alignItems: 'center' },
+  smallAction: { alignItems: 'center', gap: 3 },
+  smallActionText: { color: '#FFF', fontSize: 11, fontWeight: '600' },
+  shutterOuter: { width: 68, height: 68, borderRadius: 34, borderWidth: 3, borderColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  shutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  shutterPressed: { transform: [{ scale: 0.94 }] },
+  useDistanceButton: { minWidth: 150, height: 48, borderRadius: 24, backgroundColor: '#0A84FF', alignItems: 'center', justifyContent: 'center' },
+  useDistanceText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 });

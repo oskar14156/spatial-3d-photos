@@ -2,9 +2,15 @@ export type ViewMode = 'sbs' | 'cross_eye' | 'anaglyph' | 'wigglegram' | 'parall
 
 export type AnaglyphColorMode = 'red_cyan_pure' | 'dubois' | 'color' | 'half_color';
 
-export type StereoSourceType = 'imported_spatial' | 'imported_sbs' | 'imported_dual' | 'camera_chacha' | 'demo';
+export type StereoSourceType =
+  | 'imported_spatial'
+  | 'imported_sbs'
+  | 'imported_dual'
+  | 'camera_chacha'
+  | 'demo';
 
 export type MediaType = 'photo' | 'video';
+export type SpatialEncoding = 'spatial-heic' | 'mv-hevc' | 'sbs' | 'dual';
 
 export interface StereoPair {
   id: string;
@@ -22,14 +28,18 @@ export interface StereoPair {
   aspectRatio?: number;
   durationMs?: number;
   isSpatialVideo?: boolean;
+
+  /** Original Apple spatial media. Used to retain audio/metadata when needed. */
+  originalUri?: string;
+  spatialEncoding?: SpatialEncoding;
 }
 
 export interface StereoAlignment {
-  horizontalDisparity: number; // Convergence / stereo depth window (-50 to +50 px)
-  verticalOffset: number;       // Vertical alignment correction (-30 to +30 px)
-  rotationAngle: number;        // Roll rotation (-5 to +5 deg)
-  zoomScale: number;            // Scale adjustment (0.9 to 1.1)
-  invertEyes: boolean;          // Swap Left & Right eyes
+  horizontalDisparity: number;
+  verticalOffset: number;
+  rotationAngle: number;
+  zoomScale: number;
+  invertEyes: boolean;
 }
 
 export type SubjectPresetId = 'macro' | 'portrait' | 'room' | 'architecture' | 'mountain';
@@ -52,6 +62,13 @@ export interface GyroLevelState {
   isLevel: boolean;
 }
 
-export type ExportFormat = 'sbs_full' | 'sbs_half' | 'anaglyph_red_cyan' | 'cross_eye' | 'wigglegram_gif' | 'left_eye_only' | 'right_eye_only';
+export type ExportFormat =
+  | 'sbs_full'
+  | 'sbs_half'
+  | 'anaglyph_red_cyan'
+  | 'cross_eye'
+  | 'wigglegram_gif'
+  | 'left_eye_only'
+  | 'right_eye_only';
 
 export type LanguageCode = 'de' | 'en';

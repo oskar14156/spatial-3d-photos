@@ -1,317 +1,330 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
-import { StereoPair, ExportFormat } from '../../types';
-import { COLORS } from '../../constants';
-import { t } from '../../i18n/translations';
+import * as Sharing from 'expo-sharing';
+import { SymbolView } from 'expo-symbols';
+import type { ExportFormat, StereoPair } from '../../types';
+import { IOSSheet } from '../common/IOSSheet';
+import SpatialMedia from '../../../modules/spatial-media';
 import { hapticFeedback } from '../../utils/haptics';
 
-interface ExportModalProps {
+type Props = {
   visible: boolean;
   stereoPair: StereoPair;
   onClose: () => void;
-}
+};
 
-export const ExportModal: React.FC<ExportModalProps> = ({
+const PHOTO_FORMATS: {
+  id: ExportFormat;
+  title: string;
+  detail: string;
+  symbol: any;
+}[] = [
+  {
+    id: 'sbs_full',
+    title: 'Side by Side · Full',
+    detail: 'Full left + right eye resolution',
+    symbol: 'rectangle.split.2x1',
+  },
+  {
+    id: 'sbs_half',
+    title: 'Side by Side · Half',
+    detail: 'Standard packed SBS width',
+    symbol: 'rectangle.compress.vertical',
+  },
+  {
+    id: 'cross_eye',
+    title: 'Cross Eye',
+    detail: 'Right eye first for free viewing',
+    symbol: 'eye.trianglebadge.exclamationmark',
+  },
+  {
+    id: 'anaglyph_red_cyan',
+    title: 'Red / Cyan Anaglyph',
+    detail: 'For red-cyan glasses',
+    symbol: 'circle.lefthalf.filled',
+  },
+  {
+    id: 'wigglegram_gif',
+    title: 'Wiggle GIF',
+    detail: 'Alternating stereo loop',
+    symbol: 'repeat',
+  },
+  {
+    id: 'left_eye_only',
+    title: 'Left Eye',
+    detail: 'Single left image',
+    symbol: 'eye',
+  },
+  {
+    id: 'right_eye_only',
+    title: 'Right Eye',
+    detail: 'Single right image',
+    symbol: 'eye',
+  },
+];
+
+export const ExportModal: React.FC<Props> = ({
   visible,
   stereoPair,
   onClose,
 }) => {
-  const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('sbs_full');
-  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [format, setFormat] = useState<ExportFormat>(
+    stereoPair.mediaType === 'photo' ? 'sbs_full' : 'left_eye_only'
+  );
+  const [busy, setBusy] = useState(false);
 
-  const formats: { id: ExportFormat; title: string; desc: string; icon: string }[] = [
-    {
-      id: 'sbs_full',
-      title: t('export_format_sbs_full'),
-      desc: 'Für VR Brillen & 3D TV (Vollauflösung)',
-      icon: '👓',
-    },
-    {
-      id: 'anaglyph_red_cyan',
-      title: t('export_format_anaglyph'),
-      desc: 'Für klassische Rot-Cyan 3D-Brillen',
-      icon: '🔴🔵',
-    },
-    {
-      id: 'cross_eye',
-      title: t('export_format_cross_eye'),
-      desc: '3D ohne Brille mit Schielblick-Punkten',
-      icon: '👀',
-    },
-    {
-      id: 'wigglegram_gif',
-      title: t('export_format_wiggle_gif'),
-      desc: 'Animierter 3D Wiggle-Loop',
-      icon: '📳',
-    },
-    {
-      id: 'left_eye_only',
-      title: t('export_left_only'),
-      desc: 'Einzelbild Linkes Auge',
-      icon: '👁️',
-    },
-  ];
+  useEffect(() => {
+    setFormat(stereoPair.mediaType === 'photo' ? 'sbs_full' : 'left_eye_only');
+  }, [stereoPair.mediaType]);
 
-  const handleShareOrSave = async (isDirectShare: boolean) => {
+  const formats = useMemo(() => {
+    if (stereoPair.mediaType === 'photo') return PHOTO_FORMATS;
+
+    return [
+      {
+        id: 'left_eye_only' as ExportFormat,
+        title: 'Left Eye Video',
+        detail: 'Decoded left-eye movie',
+        symbol: 'video',
+      },
+      {
+        id: 'right_eye_only' as ExportFormat,
+        title: 'Right Eye Video',
+        detail: 'Decoded right-eye movie',
+        symbol: 'video',
+      },
+    ];
+  }, [stereoPair.mediaType]);
+
+  async function createOutput(): Promise<string> {
+    if (stereoPair.mediaType === 'video') {
+      if (format === 'right_eye_only') return stereoPair.rightUri;
+      return stereoPair.leftUri;
+    }
+
+    return SpatialMedia.exportStereoPhoto(
+      stereoPair.leftUri,
+      stereoPair.rightUri,
+      format
+    );
+  }
+
+  async function share() {
     try {
-      hapticFeedback.medium();
-      setIsExporting(true);
+      setBusy(true);
+      const output = await createOutput();
+      const available = await Sharing.isAvailableAsync();
+      if (!available) throw new Error('Share Sheet is unavailable.');
+      await Sharing.shareAsync(output);
+      hapticFeedback.success();
+    } catch (error: any) {
+      Alert.alert('Export failed', error?.message || 'Could not create the export.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      const targetUri = stereoPair.leftUri;
-
-      if (isDirectShare) {
-        const isAvailable = await Sharing.isAvailableAsync();
-        if (isAvailable && targetUri) {
-          await Sharing.shareAsync(targetUri, {
-            mimeType: stereoPair.mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
-            dialogTitle: `${stereoPair.title} - 3D Export`,
-          });
-          hapticFeedback.success();
-        } else {
-          Alert.alert('Info', 'Sharing not available on this device');
-        }
-      } else {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status === 'granted' && targetUri) {
-          await MediaLibrary.saveToLibraryAsync(targetUri);
-          hapticFeedback.success();
-          Alert.alert('Gespeichert! 🎉', t('export_success'));
-        }
+  async function save() {
+    try {
+      setBusy(true);
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (permission.status !== 'granted') {
+        throw new Error('Photos permission is required to save media.');
       }
 
-      setIsExporting(false);
-    } catch (err) {
-      console.warn('Export error:', err);
-      setIsExporting(false);
-      Alert.alert('Export', '3D Export erfolgreich abgeschlossen.');
+      const output = await createOutput();
+      await MediaLibrary.saveToLibraryAsync(output);
+      hapticFeedback.success();
+      Alert.alert('Saved', 'The export was added to Photos.');
+    } catch (error: any) {
+      Alert.alert('Export failed', error?.message || 'Could not save the export.');
+    } finally {
+      setBusy(false);
     }
-  };
+  }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.overlay}>
-        <View style={styles.modalContent}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerTitleCol}>
-              <Text style={styles.title}>{t('export_modal_title')}</Text>
-              <Text style={styles.subtitle}>{stereoPair.title}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => {
-                hapticFeedback.light();
-                onClose();
-              }}
-            >
-              <Text style={styles.closeButtonText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Format Selector List */}
-          <View style={styles.formatList}>
-            {formats.map((fmt) => {
-              const isSelected = selectedFormat === fmt.id;
-              return (
-                <TouchableOpacity
-                  key={fmt.id}
-                  style={[styles.formatCard, isSelected && styles.formatCardSelected]}
+    <IOSSheet
+      visible={visible}
+      title="Export"
+      subtitle={stereoPair.title}
+      onClose={onClose}
+    >
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.group}>
+          {formats.map((item, index) => {
+            const selected = format === item.id;
+            return (
+              <React.Fragment key={item.id}>
+                {index > 0 && <View style={styles.divider} />}
+                <Pressable
                   onPress={() => {
+                    setFormat(item.id);
                     hapticFeedback.selection();
-                    setSelectedFormat(fmt.id);
                   }}
-                  activeOpacity={0.7}
+                  style={({ pressed }) => [
+                    styles.row,
+                    pressed && styles.pressed,
+                  ]}
                 >
-                  <Text style={styles.formatIcon}>{fmt.icon}</Text>
-                  <View style={styles.formatInfo}>
-                    <Text style={[styles.formatTitle, isSelected && styles.formatTitleSelected]}>
-                      {fmt.title}
-                    </Text>
-                    <Text style={styles.formatDesc}>{fmt.desc}</Text>
+                  <SymbolView
+                    name={item.symbol}
+                    size={19}
+                    tintColor={selected ? '#0A84FF' : 'rgba(235,235,245,0.72)'}
+                  />
+                  <View style={styles.rowText}>
+                    <Text style={styles.title}>{item.title}</Text>
+                    <Text style={styles.detail}>{item.detail}</Text>
                   </View>
-                  <View style={[styles.radioDot, isSelected && styles.radioDotSelected]} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Action Buttons */}
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={styles.saveLibraryButton}
-              onPress={() => handleShareOrSave(false)}
-              disabled={isExporting}
-            >
-              {isExporting ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.saveLibraryText}>💾 {t('export_save_library')}</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.shareButton}
-              onPress={() => handleShareOrSave(true)}
-              disabled={isExporting}
-            >
-              <Text style={styles.shareText}>📤 {t('export_share_sheet')}</Text>
-            </TouchableOpacity>
-          </View>
+                  {selected && (
+                    <SymbolView
+                      name="checkmark"
+                      size={15}
+                      weight="semibold"
+                      tintColor="#0A84FF"
+                    />
+                  )}
+                </Pressable>
+              </React.Fragment>
+            );
+          })}
         </View>
+
+        {stereoPair.mediaType === 'video' && (
+          <Text style={styles.note}>
+            Spatial MV-HEVC is decoded into actual left and right eye movies
+            during import. Video composite export can be added later without
+            pretending the original file is already SBS.
+          </Text>
+        )}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        <Pressable
+          onPress={save}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.secondary,
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView name="square.and.arrow.down" size={18} tintColor="#FFFFFF" />
+          <Text style={styles.secondaryText}>Save to Photos</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={share}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.primary,
+            pressed && styles.pressed,
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <SymbolView name="square.and.arrow.up" size={18} tintColor="#FFFFFF" />
+              <Text style={styles.primaryText}>Share</Text>
+            </>
+          )}
+        </Pressable>
       </View>
-    </Modal>
+    </IOSSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'flex-end',
+  content: {
+    padding: 20,
+    paddingBottom: 110,
   },
-  modalContent: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 40,
-    borderWidth: 1.2,
-    borderTopColor: 'rgba(255, 255, 255, 0.4)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.15)',
-    borderRightColor: 'rgba(255, 255, 255, 0.15)',
+  group: {
+    overflow: 'hidden',
+    borderRadius: 16,
+    backgroundColor: 'rgb(28,28,30)',
   },
-  header: {
+  row: {
+    minHeight: 62,
+    paddingHorizontal: 15,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255, 255, 255, 0.15)',
+    gap: 12,
   },
-  headerTitleCol: {
+  rowText: {
     flex: 1,
+    paddingVertical: 10,
   },
   title: {
-    color: COLORS.textPrimary,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  subtitle: {
-    color: COLORS.cyan,
-    fontSize: 12,
-    marginTop: 2,
-    fontWeight: '700',
-  },
-  closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  formatList: {
-    gap: 8,
-    marginVertical: 8,
-  },
-  formatCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.25)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.1)',
-    borderRightColor: 'rgba(255, 255, 255, 0.1)',
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  formatCardSelected: {
-    backgroundColor: 'rgba(10, 132, 255, 0.2)',
-    borderColor: COLORS.blue,
-  },
-  formatIcon: {
-    fontSize: 22,
-    marginRight: 12,
-  },
-  formatInfo: {
-    flex: 1,
-  },
-  formatTitle: {
-    color: COLORS.textPrimary,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
+    letterSpacing: -0.2,
   },
-  formatTitleSelected: {
-    color: COLORS.cyan,
-    fontWeight: '800',
-  },
-  formatDesc: {
-    color: COLORS.textSecondary,
+  detail: {
+    color: 'rgba(235,235,245,0.44)',
     fontSize: 11,
     marginTop: 2,
   },
-  radioDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: COLORS.textSecondary,
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 46,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
-  radioDotSelected: {
-    borderColor: COLORS.cyan,
-    backgroundColor: COLORS.cyan,
+  pressed: {
+    opacity: 0.62,
   },
-  actionsRow: {
+  note: {
+    color: 'rgba(235,235,245,0.42)',
+    fontSize: 12,
+    lineHeight: 17,
+    margin: 14,
+  },
+  footer: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 14,
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
   },
-  saveLibraryButton: {
+  secondary: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    height: 52,
     borderRadius: 16,
-    paddingVertical: 14,
+    backgroundColor: 'rgb(44,44,46)',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
-  saveLibraryText: {
-    color: COLORS.textPrimary,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  shareButton: {
-    flex: 1,
-    backgroundColor: COLORS.blue,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    shadowColor: COLORS.blue,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 10,
-  },
-  shareText: {
+  secondaryText: {
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
+  },
+  primary: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#0A84FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  primaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

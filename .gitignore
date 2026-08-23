@@ -12,8 +12,11 @@ dist/
 web-build/
 
 # Native builds
+ios/
+android/
 ios/Pods/
 ios/build/
+.derivedData/
 android/app/build/
 android/.gradle/
 android/build/
