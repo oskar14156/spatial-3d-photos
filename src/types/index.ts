@@ -1,6 +1,11 @@
 export type ViewMode = 'sbs' | 'cross_eye' | 'anaglyph' | 'wigglegram' | 'parallax_tilt';
 
-export type AnaglyphColorMode = 'red_cyan_pure' | 'dubois' | 'color' | 'half_color';
+/**
+ * Red/cyan encodings we can render identically on-device and on export.
+ * `color` keeps full chroma, `half_color` desaturates the left eye to cut
+ * retinal rivalry, `mono` renders a greyscale anaglyph with the least ghosting.
+ */
+export type AnaglyphColorMode = 'color' | 'half_color' | 'mono';
 
 export type StereoSourceType =
   | 'imported_spatial'
@@ -65,10 +70,22 @@ export interface GyroLevelState {
 export type ExportFormat =
   | 'sbs_full'
   | 'sbs_half'
-  | 'anaglyph_red_cyan'
+  | 'anaglyph_color'
+  | 'anaglyph_half_color'
+  | 'anaglyph_mono'
   | 'cross_eye'
   | 'wigglegram_gif'
   | 'left_eye_only'
   | 'right_eye_only';
+
+/** Everything the viewer needs that is not persisted with the pair itself. */
+export interface ViewerOptions {
+  anaglyphMode: AnaglyphColorMode;
+  wiggleFps: number;
+  wigglePlaying: boolean;
+  vrMode: boolean;
+  /** Per-eye horizontal nudge in points, used to match headset lens spacing. */
+  ipdOffset: number;
+}
 
 export type LanguageCode = 'de' | 'en';

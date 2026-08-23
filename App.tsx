@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { HomeScreen } from './src/screens/HomeScreen';
+import { StudioScreen } from './src/screens/StudioScreen';
 
 export default function App() {
   return (
@@ -11,7 +11,7 @@ export default function App() {
       <SafeAreaProvider>
         <View style={styles.container}>
           <StatusBar style="light" />
-          <HomeScreen />
+          <StudioScreen />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

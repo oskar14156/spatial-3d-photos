@@ -9,16 +9,19 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { SymbolView } from 'expo-symbols';
+import * as MediaLibrary from 'expo-media-library';
+import { SFSymbol, SymbolView } from 'expo-symbols';
 import type { StereoPair } from '../../types';
 import { DEFAULT_ALIGNMENT } from '../../constants';
-import { IOSSheet } from '../common/IOSSheet';
+import { palette, radius, spacing, type } from '../../theme';
+import { useTranslation } from '../../i18n/useTranslation';
+import { hapticFeedback } from '../../utils/haptics';
 import SpatialMedia from '../../../modules/spatial-media';
 import {
   createStereoPairFromUris,
   splitSideBySideImage,
 } from '../../utils/stereoImageProcessor';
-import { hapticFeedback } from '../../utils/haptics';
+import { IOSSheet } from '../common/IOSSheet';
 
 type Props = {
   visible: boolean;
@@ -26,20 +29,37 @@ type Props = {
   onClose: () => void;
 };
 
+type PickedAsset = {
+  /** Path to feed the native inspector — the original file where possible. */
+  uri: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+};
+
 export const MediaImporterModal: React.FC<Props> = ({
   visible,
   onImportComplete,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
 
-  async function pickAsset(mediaTypes: ['images'] | ['videos'] | ['images', 'videos']) {
+  async function pick(
+    mediaTypes: ImagePicker.MediaType[],
+    /**
+     * Spatial detection needs the untouched original: the picker hands back a
+     * transcoded JPEG/H.264 copy, and transcoding is exactly what strips the
+     * HEIC stereo groups and the MV-HEVC eye buffers.
+     */
+    wantOriginal = false
+  ): Promise<PickedAsset | null> {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert(
-        'Photos access required',
-        'Allow access to import spatial and stereo media.'
+        t('import_photos_permission'),
+        t('import_photos_permission_body')
       );
       return null;
     }
@@ -51,25 +71,44 @@ export const MediaImporterModal: React.FC<Props> = ({
       selectionLimit: 1,
     });
 
-    return result.canceled ? null : result.assets[0] ?? null;
+    const asset = result.canceled ? null : result.assets[0];
+    if (!asset) return null;
+
+    const picked: PickedAsset = {
+      uri: asset.uri,
+      fileName: asset.fileName ?? undefined,
+      width: asset.width,
+      height: asset.height,
+    };
+
+    if (wantOriginal && asset.assetId) {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
+        if (info.localUri) picked.uri = info.localUri;
+      } catch {
+        // Fall back to the picker copy; the inspector will simply report it
+        // as an ordinary image or video.
+      }
+    }
+
+    return picked;
   }
 
   async function importAppleSpatial() {
-    const asset = await pickAsset(['images', 'videos']);
+    const asset = await pick(['images', 'videos'], true);
     if (!asset) return;
 
+    setBusy(true);
     try {
-      setBusy(true);
-      setProgress('Inspecting Apple spatial media…');
-
+      setProgress(t('import_inspecting'));
       const inspection = await SpatialMedia.inspect(asset.uri);
 
       if (inspection.kind === 'spatial-photo') {
-        setProgress('Extracting left and right images…');
+        setProgress(t('import_extracting_photo'));
         const result = await SpatialMedia.splitSpatialPhoto(asset.uri);
-        const pair: StereoPair = {
+        await finish({
           id: `spatial_${Date.now()}`,
-          title: asset.fileName || 'Spatial Photo',
+          title: asset.fileName || t('import_apple_title'),
           leftUri: result.leftUri,
           rightUri: result.rightUri,
           originalUri: result.originalUri,
@@ -80,17 +119,16 @@ export const MediaImporterModal: React.FC<Props> = ({
           alignment: { ...DEFAULT_ALIGNMENT },
           aspectRatio:
             result.width && result.height ? result.width / result.height : undefined,
-        };
-        await finish(pair);
+        });
         return;
       }
 
       if (inspection.kind === 'spatial-video') {
-        setProgress('Decoding MV-HEVC left and right eye video…');
+        setProgress(t('import_decoding_video'));
         const result = await SpatialMedia.splitSpatialVideo(asset.uri);
-        const pair: StereoPair = {
+        await finish({
           id: `spatial_${Date.now()}`,
-          title: asset.fileName || 'Spatial Video',
+          title: asset.fileName || t('import_apple_title'),
           leftUri: result.leftUri,
           rightUri: result.rightUri,
           originalUri: result.originalUri,
@@ -103,45 +141,39 @@ export const MediaImporterModal: React.FC<Props> = ({
             result.width && result.height ? result.width / result.height : undefined,
           durationMs: result.duration ? result.duration * 1000 : undefined,
           isSpatialVideo: true,
-        };
-        await finish(pair);
+        });
         return;
       }
 
+      Alert.alert(t('import_not_spatial_title'), t('import_not_spatial_body'));
+    } catch (error) {
       Alert.alert(
-        'Not Apple spatial media',
-        'Choose “Side-by-side image” for an SBS photo, or “Two photos” for a stereo pair.'
-      );
-    } catch (error: any) {
-      console.error(error);
-      Alert.alert(
-        'Could not import',
-        error?.message || 'The spatial media could not be decoded.'
+        t('import_failed'),
+        error instanceof Error ? error.message : t('error')
       );
     } finally {
       setBusy(false);
     }
   }
 
-  async function importSBS() {
-    const asset = await pickAsset(['images']);
+  async function importSideBySide() {
+    const asset = await pick(['images']);
     if (!asset) return;
 
     if (!asset.width || !asset.height) {
-      Alert.alert('Unsupported image', 'Image dimensions could not be read.');
+      Alert.alert(t('import_failed'), t('error'));
       return;
     }
 
+    // A true SBS frame is roughly twice as wide as it is tall; warn rather
+    // than refuse, since cropped panoramas are a legitimate edge case.
     if (asset.width < asset.height * 1.5) {
-      Alert.alert(
-        'This may not be side-by-side',
-        'The selected image is not especially wide. It can still be split, but verify the result.'
-      );
+      Alert.alert(t('import_wide_warning_title'), t('import_wide_warning_body'));
     }
 
+    setBusy(true);
     try {
-      setBusy(true);
-      setProgress('Splitting side-by-side image…');
+      setProgress(t('import_splitting_sbs'));
       const split = await splitSideBySideImage(
         asset.uri,
         asset.width,
@@ -151,38 +183,39 @@ export const MediaImporterModal: React.FC<Props> = ({
       const pair = createStereoPairFromUris(
         split.leftEyeUri,
         split.rightEyeUri,
-        asset.fileName || 'Side-by-Side',
-        'imported_sbs',
-        'photo'
+        asset.fileName || t('import_sbs_title'),
+        'imported_sbs'
       );
       pair.spatialEncoding = 'sbs';
       pair.aspectRatio = split.width / split.height;
       await finish(pair);
     } catch (error) {
-      console.error(error);
-      Alert.alert('Import failed', 'The side-by-side image could not be split.');
+      Alert.alert(
+        t('import_failed'),
+        error instanceof Error ? error.message : t('error')
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  async function importDual() {
-    const left = await pickAsset(['images']);
+  async function importTwoPhotos() {
+    const left = await pick(['images']);
     if (!left) return;
 
     hapticFeedback.selection();
 
-    const right = await pickAsset(['images']);
+    const right = await pick(['images']);
     if (!right) return;
 
     const pair = createStereoPairFromUris(
       left.uri,
       right.uri,
-      'Stereo Pair',
-      'imported_dual',
-      'photo'
+      t('import_dual_title'),
+      'imported_dual'
     );
     pair.spatialEncoding = 'dual';
+    if (left.width && left.height) pair.aspectRatio = left.width / left.height;
     await finish(pair);
   }
 
@@ -196,43 +229,42 @@ export const MediaImporterModal: React.FC<Props> = ({
   return (
     <IOSSheet
       visible={visible}
-      title="Import"
-      subtitle="Choose the actual source format"
+      title={t('import_title')}
+      subtitle={t('import_sheet_subtitle')}
       onClose={onClose}
     >
       {busy ? (
         <View style={styles.busy}>
-          <ActivityIndicator size="large" color="#0A84FF" />
-          <Text style={styles.busyTitle}>Processing</Text>
+          <ActivityIndicator size="large" color={palette.blue} />
+          <Text style={styles.busyTitle}>{t('import_processing')}</Text>
           <Text style={styles.busyText}>{progress}</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
-          <ImportRow
-            symbol="viewfinder.rectangular"
-            title="Apple Spatial Photo or Video"
-            detail="HEIC stereo pair or MV-HEVC from iPhone"
-            onPress={importAppleSpatial}
-          />
-          <Divider />
-          <ImportRow
-            symbol="rectangle.split.2x1"
-            title="Side-by-side image"
-            detail="One image containing left and right views"
-            onPress={importSBS}
-          />
-          <Divider />
-          <ImportRow
-            symbol="photo.stack"
-            title="Two photos"
-            detail="Select left image, then right image"
-            onPress={importDual}
-          />
+          <View style={styles.group}>
+            <ImportRow
+              symbol="viewfinder.rectangular"
+              title={t('import_apple_title')}
+              detail={t('import_apple_detail')}
+              onPress={importAppleSpatial}
+            />
+            <View style={styles.divider} />
+            <ImportRow
+              symbol="rectangle.split.2x1"
+              title={t('import_sbs_title')}
+              detail={t('import_sbs_detail')}
+              onPress={importSideBySide}
+            />
+            <View style={styles.divider} />
+            <ImportRow
+              symbol="photo.stack"
+              title={t('import_dual_title')}
+              detail={t('import_dual_detail')}
+              onPress={importTwoPhotos}
+            />
+          </View>
 
-          <Text style={styles.note}>
-            Spatial media is inspected before import. Normal photos are no
-            longer silently treated as side-by-side.
-          </Text>
+          <Text style={styles.note}>{t('import_note')}</Text>
         </ScrollView>
       )}
     </IOSSheet>
@@ -245,43 +277,43 @@ function ImportRow({
   detail,
   onPress,
 }: {
-  symbol: any;
+  symbol: SFSymbol;
   title: string;
   detail: string;
   onPress: () => void;
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityHint={detail}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={styles.icon}>
-        <SymbolView name={symbol} size={22} tintColor="#0A84FF" />
+        <SymbolView name={symbol} size={21} tintColor={palette.blue} style={styles.iconGlyph} />
       </View>
       <View style={styles.rowText}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.detail}>{detail}</Text>
+        <Text style={styles.rowTitle}>{title}</Text>
+        <Text style={styles.rowDetail}>{detail}</Text>
       </View>
       <SymbolView
         name="chevron.right"
         size={12}
         weight="semibold"
-        tintColor="rgba(235,235,245,0.28)"
+        tintColor={palette.labelQuaternary}
+        style={styles.chevron}
       />
     </Pressable>
   );
 }
 
-function Divider() {
-  return <View style={styles.divider} />;
-}
-
 const styles = StyleSheet.create({
-  content: {
-    margin: 20,
-    borderRadius: 16,
+  content: { padding: spacing.lg },
+  group: {
+    borderRadius: radius.group,
     overflow: 'hidden',
-    backgroundColor: 'rgb(28,28,30)',
+    backgroundColor: palette.fill,
   },
   row: {
     minHeight: 74,
@@ -289,63 +321,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  pressed: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
+  pressed: { backgroundColor: 'rgba(255,255,255,0.05)' },
   icon: {
     width: 42,
     height: 42,
     borderRadius: 10,
-    backgroundColor: 'rgba(10,132,255,0.13)',
+    backgroundColor: 'rgba(10,132,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: spacing.md,
   },
-  rowText: {
-    flex: 1,
-    paddingVertical: 11,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: -0.25,
-  },
-  detail: {
-    color: 'rgba(235,235,245,0.48)',
-    fontSize: 12,
-    lineHeight: 16,
-    marginTop: 2,
-  },
+  iconGlyph: { width: 24, height: 24 },
+  chevron: { width: 14, height: 14 },
+  rowText: { flex: 1, paddingVertical: 11 },
+  rowTitle: { ...type.headline, fontWeight: '600', color: palette.label },
+  rowDetail: { ...type.caption, marginTop: 2, color: palette.labelTertiary },
   divider: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 68,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: palette.separator,
   },
   note: {
-    color: 'rgba(235,235,245,0.42)',
-    fontSize: 12,
-    lineHeight: 17,
-    padding: 16,
-    backgroundColor: '#000',
+    ...type.caption,
+    color: palette.labelTertiary,
+    marginTop: spacing.md,
+    marginHorizontal: spacing.xs,
   },
   busy: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 30,
+    paddingHorizontal: spacing.xxl,
   },
-  busyTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 16,
-  },
+  busyTitle: { ...type.title3, marginTop: spacing.lg, color: palette.label },
   busyText: {
-    color: 'rgba(235,235,245,0.48)',
+    ...type.footnote,
     textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 18,
     marginTop: 5,
+    color: palette.labelTertiary,
   },
 });

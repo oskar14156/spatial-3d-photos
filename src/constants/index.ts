@@ -1,45 +1,5 @@
 import { StereoPair, StereoAlignment } from '../types';
 
-export const COLORS = {
-  background: '#000000',
-  surface: '#0d0d10',
-  surfaceElevated: '#16161a',
-  surfaceCard: 'rgba(24, 24, 30, 0.7)',
-  surfaceHighlight: '#222228',
-  border: 'rgba(255, 255, 255, 0.14)',
-  borderActive: '#0A84FF',
-  
-  // Apple System Accents
-  blue: '#0A84FF',
-  cyan: '#64D2FF',
-  green: '#30D158',
-  indigo: '#5E5CE6',
-  purple: '#BF5AF2',
-  pink: '#FF375F',
-  red: '#FF453A',
-  yellow: '#FFD60A',
-  orange: '#FF9F0A',
-
-  // Anaglyph 3D standard colors
-  anaglyphRed: '#FF2A2A',
-  anaglyphCyan: '#00E5FF',
-
-  // Liquid Glass Design Tokens
-  liquidGlassBg: 'rgba(20, 20, 26, 0.55)',
-  liquidGlassTopRim: 'rgba(255, 255, 255, 0.45)',
-  liquidGlassBorder: 'rgba(255, 255, 255, 0.18)',
-  liquidGlassGlow: 'rgba(10, 132, 255, 0.35)',
-
-  // Typography
-  textPrimary: '#FFFFFF',
-  textSecondary: '#98989F',
-  textTertiary: '#6C6C70',
-  textMuted: '#48484A',
-  
-  glassBackground: 'rgba(16, 16, 22, 0.65)',
-  glassBorder: 'rgba(255, 255, 255, 0.16)',
-};
-
 export const DEFAULT_ALIGNMENT: StereoAlignment = {
   horizontalDisparity: 0,
   verticalOffset: 0,

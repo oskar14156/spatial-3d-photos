@@ -7,97 +7,94 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { SFSymbol, SymbolView } from 'expo-symbols';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LanguageCode } from '../../types';
-import { getLanguage, setLanguage } from '../../i18n/translations';
+import { palette, radius, spacing, type } from '../../theme';
+import { setLanguage } from '../../i18n/translations';
+import { useTranslation } from '../../i18n/useTranslation';
 import { saveLanguagePreference } from '../../utils/storage';
 import { hapticFeedback } from '../../utils/haptics';
+import { LEVEL_TOLERANCE_DEGREES } from '../../utils/captureGuidance';
 import { IOSSheet } from '../common/IOSSheet';
 
 type Props = {
   visible: boolean;
-  onLanguageChange: (lang: LanguageCode) => void;
   onClose: () => void;
 };
 
-export const SettingsModal: React.FC<Props> = ({
-  visible,
-  onLanguageChange,
-  onClose,
-}) => {
-  const current = getLanguage();
+export const SettingsModal: React.FC<Props> = ({ visible, onClose }) => {
+  const { t, language } = useTranslation();
+  const insets = useSafeAreaInsets();
 
-  const changeLanguage = async (language: LanguageCode) => {
+  const changeLanguage = async (next: LanguageCode) => {
+    if (next === language) return;
     hapticFeedback.selection();
-    setLanguage(language);
-    await saveLanguagePreference(language);
-    onLanguageChange(language);
+    // The store notifies every `useTranslation` consumer, so the whole app —
+    // including this sheet — re-renders in the new language immediately.
+    setLanguage(next);
+    await saveLanguagePreference(next);
   };
 
   return (
-    <IOSSheet visible={visible} title="Settings" onClose={onClose}>
+    <IOSSheet visible={visible} title={t('settings_title')} onClose={onClose}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + spacing.xxl },
+        ]}
       >
-        <Text style={styles.groupTitle}>LANGUAGE</Text>
+        <Text style={styles.groupTitle}>{t('settings_language_section')}</Text>
         <View style={styles.group}>
-          <SettingRow
+          <ActionRow
             symbol="globe"
             title="Deutsch"
-            selected={current === 'de'}
+            selected={language === 'de'}
             onPress={() => changeLanguage('de')}
           />
           <Divider />
-          <SettingRow
+          <ActionRow
             symbol="globe"
             title="English"
-            selected={current === 'en'}
+            selected={language === 'en'}
             onPress={() => changeLanguage('en')}
           />
         </View>
 
-        <Text style={styles.groupTitle}>CAPTURE</Text>
+        <Text style={styles.groupTitle}>{t('settings_capture_section')}</Text>
         <View style={styles.group}>
           <InfoRow
             symbol="ruler"
-            title="Stereo base"
-            value="Automatic"
+            title={t('settings_stereo_base_row')}
+            value={t('settings_stereo_base_value')}
           />
           <Divider />
           <InfoRow
-            symbol="move.3d"
-            title="Level tolerance"
-            value="±1.0°"
+            symbol="level"
+            title={t('settings_level_tolerance')}
+            value={`±${LEVEL_TOLERANCE_DEGREES.toFixed(1)}°`}
           />
           <Divider />
           <InfoRow
             symbol="viewfinder"
-            title="LiDAR distance"
-            value="Auto when available"
+            title={t('settings_lidar_row')}
+            value={t('settings_lidar_value')}
           />
         </View>
+        <Text style={styles.footnote}>{t('settings_footnote')}</Text>
 
-        <Text style={styles.footnote}>
-          Stereo distance is a comfort recommendation, not a fixed law.
-          Near subjects are clamped; distant scenes may intentionally use
-          hyperstereo.
-        </Text>
-
-        <Text style={styles.groupTitle}>ABOUT</Text>
+        <Text style={styles.groupTitle}>{t('settings_about_section')}</Text>
         <View style={styles.group}>
-          <InfoRow
-            symbol="cube.transparent"
-            title="Spatial3D"
-            value="1.0"
-          />
+          <InfoRow symbol="cube.transparent" title="Spatial3D" value="1.0" />
           <Divider />
-          <SettingRow
+          <ActionRow
             symbol="gear"
-            title="Open iOS Settings"
+            title={t('settings_open_ios')}
             onPress={() => Linking.openSettings()}
           />
         </View>
+        <Text style={styles.footnote}>{t('settings_about_desc')}</Text>
       </ScrollView>
     </IOSSheet>
   );
@@ -112,101 +109,98 @@ function InfoRow({
   title,
   value,
 }: {
-  symbol: any;
+  symbol: SFSymbol;
   title: string;
   value: string;
 }) {
   return (
-    <View style={styles.row}>
-      <SymbolView name={symbol} size={18} tintColor="#0A84FF" />
+    <View style={styles.row} accessible accessibilityLabel={`${title}, ${value}`}>
+      <SymbolView name={symbol} size={18} tintColor={palette.blue} style={styles.glyph} />
       <Text style={styles.rowTitle}>{title}</Text>
       <Text style={styles.rowValue}>{value}</Text>
     </View>
   );
 }
 
-function SettingRow({
+function ActionRow({
   symbol,
   title,
   selected,
   onPress,
 }: {
-  symbol: any;
+  symbol: SFSymbol;
   title: string;
   selected?: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
+      accessibilityRole={selected === undefined ? 'button' : 'radio'}
+      accessibilityState={selected === undefined ? undefined : { selected }}
+      accessibilityLabel={title}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      <SymbolView name={symbol} size={18} tintColor="#0A84FF" />
+      <SymbolView name={symbol} size={18} tintColor={palette.blue} style={styles.glyph} />
       <Text style={styles.rowTitle}>{title}</Text>
       {selected ? (
-        <SymbolView name="checkmark" size={16} tintColor="#0A84FF" weight="semibold" />
-      ) : (
         <SymbolView
-          name="chevron.right"
-          size={12}
-          tintColor="rgba(235,235,245,0.28)"
+          name="checkmark"
+          size={16}
           weight="semibold"
+          tintColor={palette.blue}
+          style={styles.trailingGlyph}
         />
+      ) : selected === undefined ? (
+        <SymbolView
+          name="arrow.up.forward.app"
+          size={15}
+          tintColor={palette.labelQuaternary}
+          style={styles.trailingGlyph}
+        />
+      ) : (
+        <View style={styles.trailingGlyph} />
       )}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    padding: 20,
-    paddingBottom: 36,
-  },
+  content: { padding: spacing.lg },
   groupTitle: {
-    color: 'rgba(235,235,245,0.42)',
-    fontSize: 11,
+    ...type.eyebrow,
     fontWeight: '600',
-    letterSpacing: 0.6,
-    marginLeft: 16,
+    color: palette.labelTertiary,
+    marginLeft: spacing.lg,
     marginBottom: 7,
-    marginTop: 18,
+    marginTop: spacing.lg,
   },
   group: {
-    borderRadius: 14,
+    borderRadius: radius.group,
     overflow: 'hidden',
-    backgroundColor: 'rgb(28,28,30)',
+    backgroundColor: palette.fill,
   },
   row: {
     minHeight: 50,
     paddingHorizontal: 15,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: spacing.md,
   },
-  rowTitle: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '400',
-    letterSpacing: -0.25,
-  },
-  rowValue: {
-    color: 'rgba(235,235,245,0.50)',
-    fontSize: 15,
-  },
+  glyph: { width: 22, height: 22 },
+  trailingGlyph: { width: 18, height: 18 },
+  rowTitle: { ...type.body, flex: 1, color: palette.label },
+  rowValue: { ...type.callout, color: palette.labelSecondary },
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 45,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    marginLeft: 49,
+    backgroundColor: palette.separator,
   },
-  pressed: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
+  pressed: { backgroundColor: 'rgba(255,255,255,0.05)' },
   footnote: {
-    color: 'rgba(235,235,245,0.42)',
-    fontSize: 12,
-    lineHeight: 17,
-    marginHorizontal: 16,
-    marginTop: 8,
+    ...type.caption,
+    color: palette.labelTertiary,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
   },
 });

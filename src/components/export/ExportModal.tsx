@@ -10,107 +10,133 @@ import {
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import { SymbolView } from 'expo-symbols';
-import type { ExportFormat, StereoPair } from '../../types';
-import { IOSSheet } from '../common/IOSSheet';
-import SpatialMedia from '../../../modules/spatial-media';
+import { SFSymbol, SymbolView } from 'expo-symbols';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { AnaglyphColorMode, ExportFormat, StereoPair } from '../../types';
+import { palette, radius, spacing, type } from '../../theme';
+import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
+import SpatialMedia from '../../../modules/spatial-media';
+import { IOSSheet } from '../common/IOSSheet';
 
 type Props = {
   visible: boolean;
   stereoPair: StereoPair;
+  /** Mirrors whatever the viewer is currently showing. */
+  anaglyphMode: AnaglyphColorMode;
   onClose: () => void;
 };
 
-const PHOTO_FORMATS: {
+type FormatRow = {
   id: ExportFormat;
   title: string;
   detail: string;
-  symbol: any;
-}[] = [
-  {
-    id: 'sbs_full',
-    title: 'Side by Side · Full',
-    detail: 'Full left + right eye resolution',
-    symbol: 'rectangle.split.2x1',
-  },
-  {
-    id: 'sbs_half',
-    title: 'Side by Side · Half',
-    detail: 'Standard packed SBS width',
-    symbol: 'rectangle.compress.vertical',
-  },
-  {
-    id: 'cross_eye',
-    title: 'Cross Eye',
-    detail: 'Right eye first for free viewing',
-    symbol: 'eye.trianglebadge.exclamationmark',
-  },
-  {
-    id: 'anaglyph_red_cyan',
-    title: 'Red / Cyan Anaglyph',
-    detail: 'For red-cyan glasses',
-    symbol: 'circle.lefthalf.filled',
-  },
-  {
-    id: 'wigglegram_gif',
-    title: 'Wiggle GIF',
-    detail: 'Alternating stereo loop',
-    symbol: 'repeat',
-  },
-  {
-    id: 'left_eye_only',
-    title: 'Left Eye',
-    detail: 'Single left image',
-    symbol: 'eye',
-  },
-  {
-    id: 'right_eye_only',
-    title: 'Right Eye',
-    detail: 'Single right image',
-    symbol: 'eye',
-  },
-];
+  symbol: SFSymbol;
+};
 
 export const ExportModal: React.FC<Props> = ({
   visible,
   stereoPair,
+  anaglyphMode,
   onClose,
 }) => {
-  const [format, setFormat] = useState<ExportFormat>(
-    stereoPair.mediaType === 'photo' ? 'sbs_full' : 'left_eye_only'
-  );
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+
+  const isPhoto = stereoPair.mediaType === 'photo';
+  const [format, setFormat] = useState<ExportFormat>('sbs_full');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    setFormat(stereoPair.mediaType === 'photo' ? 'sbs_full' : 'left_eye_only');
-  }, [stereoPair.mediaType]);
+  const anaglyphFormat: ExportFormat =
+    anaglyphMode === 'mono'
+      ? 'anaglyph_mono'
+      : anaglyphMode === 'half_color'
+      ? 'anaglyph_half_color'
+      : 'anaglyph_color';
 
-  const formats = useMemo(() => {
-    if (stereoPair.mediaType === 'photo') return PHOTO_FORMATS;
+  const formats = useMemo<FormatRow[]>(() => {
+    if (!isPhoto) {
+      return [
+        {
+          id: 'left_eye_only',
+          title: t('export_left_only'),
+          detail: t('badge_video'),
+          symbol: 'video',
+        },
+        {
+          id: 'right_eye_only',
+          title: t('export_right_only'),
+          detail: t('badge_video'),
+          symbol: 'video',
+        },
+      ];
+    }
 
     return [
       {
-        id: 'left_eye_only' as ExportFormat,
-        title: 'Left Eye Video',
-        detail: 'Decoded left-eye movie',
-        symbol: 'video',
+        id: 'sbs_full',
+        title: t('export_format_sbs_full'),
+        detail: t('sbs_explanation'),
+        symbol: 'rectangle.split.2x1',
       },
       {
-        id: 'right_eye_only' as ExportFormat,
-        title: 'Right Eye Video',
-        detail: 'Decoded right-eye movie',
-        symbol: 'video',
+        id: 'sbs_half',
+        title: t('export_format_sbs_half'),
+        detail: t('viewer_vr_mode'),
+        symbol: 'rectangle.compress.vertical',
+      },
+      {
+        id: 'cross_eye',
+        title: t('export_format_cross_eye'),
+        detail: t('cross_eye_explanation'),
+        symbol: 'eye',
+      },
+      {
+        id: anaglyphFormat,
+        title: t('export_format_anaglyph'),
+        detail: t('anaglyph_explanation'),
+        symbol: 'circle.lefthalf.filled',
+      },
+      {
+        id: 'wigglegram_gif',
+        title: t('export_format_wiggle_gif'),
+        detail: t('wigglegram_explanation'),
+        symbol: 'repeat',
+      },
+      {
+        id: 'left_eye_only',
+        title: t('export_left_only'),
+        detail: t('badge_photo'),
+        symbol: 'square.on.square',
+      },
+      {
+        id: 'right_eye_only',
+        title: t('export_right_only'),
+        detail: t('badge_photo'),
+        symbol: 'square.on.square',
       },
     ];
-  }, [stereoPair.mediaType]);
+  }, [anaglyphFormat, isPhoto, t]);
+
+  // Keep the selection valid when the pair — or the anaglyph variant — changes.
+  useEffect(() => {
+    setFormat((current) =>
+      formats.some((row) => row.id === current)
+        ? current
+        : formats[0]?.id ?? 'sbs_full'
+    );
+  }, [formats]);
+
+  /**
+   * Built-in samples are inline SVG data URIs, so there is no file for the
+   * native exporter to open. Refusing up front beats a decode failure.
+   */
+  const isDemo = stereoPair.sourceType === 'demo';
 
   async function createOutput(): Promise<string> {
-    if (stereoPair.mediaType === 'video') {
-      if (format === 'right_eye_only') return stereoPair.rightUri;
-      return stereoPair.leftUri;
+    if (!isPhoto) {
+      return format === 'right_eye_only' ? stereoPair.rightUri : stereoPair.leftUri;
     }
-
     return SpatialMedia.exportStereoPhoto(
       stereoPair.leftUri,
       stereoPair.rightUri,
@@ -118,35 +144,39 @@ export const ExportModal: React.FC<Props> = ({
     );
   }
 
-  async function share() {
-    try {
-      setBusy(true);
-      const output = await createOutput();
-      const available = await Sharing.isAvailableAsync();
-      if (!available) throw new Error('Share Sheet is unavailable.');
-      await Sharing.shareAsync(output);
-      hapticFeedback.success();
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message || 'Could not create the export.');
-    } finally {
-      setBusy(false);
+  async function run(action: 'share' | 'save') {
+    if (isDemo) {
+      Alert.alert(t('export_demo_blocked_title'), t('export_demo_blocked_body'));
+      return;
     }
-  }
 
-  async function save() {
+    setBusy(true);
     try {
-      setBusy(true);
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (permission.status !== 'granted') {
-        throw new Error('Photos permission is required to save media.');
+      if (action === 'save') {
+        const permission = await MediaLibrary.requestPermissionsAsync();
+        if (!permission.granted) {
+          throw new Error(t('import_photos_permission_body'));
+        }
+      } else if (!(await Sharing.isAvailableAsync())) {
+        throw new Error(t('export_failed'));
       }
 
       const output = await createOutput();
-      await MediaLibrary.saveToLibraryAsync(output);
-      hapticFeedback.success();
-      Alert.alert('Saved', 'The export was added to Photos.');
-    } catch (error: any) {
-      Alert.alert('Export failed', error?.message || 'Could not save the export.');
+
+      if (action === 'save') {
+        await MediaLibrary.saveToLibraryAsync(output);
+        hapticFeedback.success();
+        Alert.alert(t('export_saved_title'), t('export_saved_body'));
+      } else {
+        await Sharing.shareAsync(output);
+        hapticFeedback.success();
+      }
+    } catch (error) {
+      hapticFeedback.warning();
+      Alert.alert(
+        t('export_failed'),
+        error instanceof Error ? error.message : t('error')
+      );
     } finally {
       setBusy(false);
     }
@@ -155,42 +185,47 @@ export const ExportModal: React.FC<Props> = ({
   return (
     <IOSSheet
       visible={visible}
-      title="Export"
+      title={t('export_sheet_title')}
       subtitle={stereoPair.title}
       onClose={onClose}
     >
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 110 }]}
+      >
         <View style={styles.group}>
-          {formats.map((item, index) => {
-            const selected = format === item.id;
+          {formats.map((row, index) => {
+            const selected = format === row.id;
             return (
-              <React.Fragment key={item.id}>
+              <React.Fragment key={row.id}>
                 {index > 0 && <View style={styles.divider} />}
                 <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
                   onPress={() => {
-                    setFormat(item.id);
                     hapticFeedback.selection();
+                    setFormat(row.id);
                   }}
-                  style={({ pressed }) => [
-                    styles.row,
-                    pressed && styles.pressed,
-                  ]}
+                  style={({ pressed }) => [styles.row, pressed && styles.pressed]}
                 >
                   <SymbolView
-                    name={item.symbol}
+                    name={row.symbol}
                     size={19}
-                    tintColor={selected ? '#0A84FF' : 'rgba(235,235,245,0.72)'}
+                    tintColor={selected ? palette.blue : palette.labelSecondary}
+                    style={styles.rowGlyph}
                   />
                   <View style={styles.rowText}>
-                    <Text style={styles.title}>{item.title}</Text>
-                    <Text style={styles.detail}>{item.detail}</Text>
+                    <Text style={styles.rowTitle}>{row.title}</Text>
+                    <Text style={styles.rowDetail} numberOfLines={2}>
+                      {row.detail}
+                    </Text>
                   </View>
                   {selected && (
                     <SymbolView
                       name="checkmark"
                       size={15}
                       weight="semibold"
-                      tintColor="#0A84FF"
+                      tintColor={palette.blue}
+                      style={styles.checkGlyph}
                     />
                   )}
                 </Pressable>
@@ -199,42 +234,53 @@ export const ExportModal: React.FC<Props> = ({
           })}
         </View>
 
-        {stereoPair.mediaType === 'video' && (
-          <Text style={styles.note}>
-            Spatial MV-HEVC is decoded into actual left and right eye movies
-            during import. Video composite export can be added later without
-            pretending the original file is already SBS.
-          </Text>
+        {isDemo && (
+          <Text style={styles.note}>{t('export_demo_blocked_body')}</Text>
         )}
+        {!isPhoto && <Text style={styles.note}>{t('export_video_note')}</Text>}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
         <Pressable
-          onPress={save}
-          disabled={busy}
+          accessibilityRole="button"
+          onPress={() => run('save')}
+          disabled={busy || isDemo}
           style={({ pressed }) => [
             styles.secondary,
+            (busy || isDemo) && styles.disabled,
             pressed && styles.pressed,
           ]}
         >
-          <SymbolView name="square.and.arrow.down" size={18} tintColor="#FFFFFF" />
-          <Text style={styles.secondaryText}>Save to Photos</Text>
+          <SymbolView
+            name="square.and.arrow.down"
+            size={18}
+            tintColor={palette.label}
+            style={styles.footerGlyph}
+          />
+          <Text style={styles.secondaryText}>{t('export_save_library_short')}</Text>
         </Pressable>
 
         <Pressable
-          onPress={share}
-          disabled={busy}
+          accessibilityRole="button"
+          onPress={() => run('share')}
+          disabled={busy || isDemo}
           style={({ pressed }) => [
             styles.primary,
+            (busy || isDemo) && styles.disabled,
             pressed && styles.pressed,
           ]}
         >
           {busy ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={palette.label} />
           ) : (
             <>
-              <SymbolView name="square.and.arrow.up" size={18} tintColor="#FFFFFF" />
-              <Text style={styles.primaryText}>Share</Text>
+              <SymbolView
+                name="square.and.arrow.up"
+                size={18}
+                tintColor={palette.label}
+                style={styles.footerGlyph}
+              />
+              <Text style={styles.primaryText}>{t('export_share_short')}</Text>
             </>
           )}
         </Pressable>
@@ -244,87 +290,71 @@ export const ExportModal: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  content: {
-    padding: 20,
-    paddingBottom: 110,
-  },
+  content: { padding: spacing.lg },
   group: {
     overflow: 'hidden',
-    borderRadius: 16,
-    backgroundColor: 'rgb(28,28,30)',
+    borderRadius: radius.group,
+    backgroundColor: palette.fill,
   },
   row: {
     minHeight: 62,
     paddingHorizontal: 15,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: spacing.md,
   },
-  rowText: {
-    flex: 1,
-    paddingVertical: 10,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-  },
-  detail: {
-    color: 'rgba(235,235,245,0.44)',
-    fontSize: 11,
-    marginTop: 2,
-  },
+  rowGlyph: { width: 22, height: 22 },
+  checkGlyph: { width: 16, height: 16 },
+  rowText: { flex: 1, paddingVertical: 10 },
+  rowTitle: { ...type.callout, color: palette.label },
+  rowDetail: { ...type.caption, fontSize: 11, marginTop: 2, color: palette.labelTertiary },
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 46,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    marginLeft: 49,
+    backgroundColor: palette.separator,
   },
-  pressed: {
-    opacity: 0.62,
-  },
+  pressed: { opacity: 0.62 },
+  disabled: { opacity: 0.4 },
   note: {
-    color: 'rgba(235,235,245,0.42)',
-    fontSize: 12,
-    lineHeight: 17,
-    margin: 14,
+    ...type.caption,
+    color: palette.labelTertiary,
+    marginTop: spacing.md,
+    marginHorizontal: spacing.xs,
   },
   footer: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 14,
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
-    gap: 10,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.separator,
+    backgroundColor: palette.canvas,
   },
+  footerGlyph: { width: 20, height: 20 },
   secondary: {
     flex: 1,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: 'rgb(44,44,46)',
+    height: 50,
+    borderRadius: radius.group,
+    backgroundColor: palette.fillElevated,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
   },
-  secondaryText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  secondaryText: { ...type.subheadline, fontWeight: '600', color: palette.label },
   primary: {
     flex: 1,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: '#0A84FF',
+    height: 50,
+    borderRadius: radius.group,
+    backgroundColor: palette.blue,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
   },
-  primaryText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
+  primaryText: { ...type.subheadline, fontWeight: '700', color: palette.label },
 });

@@ -11,15 +11,10 @@ coverage/
 dist/
 web-build/
 
-# Native builds
-ios/
-android/
-ios/Pods/
-ios/build/
+# Native builds — anchored, so `modules/*/ios` native sources stay tracked.
+/ios/
+/android/
 .derivedData/
-android/app/build/
-android/.gradle/
-android/build/
 
 # Temporary / OS
 .DS_Store

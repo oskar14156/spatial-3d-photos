@@ -1,78 +1,73 @@
-import * as ImageManipulator from 'expo-image-manipulator';
-import { StereoPair } from '../types';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import type { StereoPair } from '../types';
 import { DEFAULT_ALIGNMENT } from '../constants';
 
-export interface SplittedStereoResult {
+export interface SplitStereoResult {
   leftEyeUri: string;
   rightEyeUri: string;
+  /** Dimensions of a single eye, not of the source frame. */
   width: number;
   height: number;
 }
 
 /**
- * Splits a Side-by-Side (SBS) stereoscopic image into separate Left and Right eye image files.
+ * Cuts a packed side-by-side frame into two eye images.
+ *
+ * The source is opened once and cropped twice from the same in-memory image;
+ * decoding a large JPEG twice was measurably slower and doubled peak memory.
  */
 export async function splitSideBySideImage(
   imageUri: string,
-  imageWidth?: number,
-  imageHeight?: number
-): Promise<SplittedStereoResult> {
-  const width = imageWidth || 1920;
-  const height = imageHeight || 1080;
-  const halfWidth = Math.floor(width / 2);
+  imageWidth: number,
+  imageHeight: number
+): Promise<SplitStereoResult> {
+  const halfWidth = Math.floor(imageWidth / 2);
+  if (halfWidth < 1 || imageHeight < 1) {
+    throw new Error('The image dimensions could not be read.');
+  }
 
-  // Left Eye crop
-  const leftEyeResult = await ImageManipulator.manipulateAsync(
-    imageUri,
-    [
-      {
-        crop: {
-          originX: 0,
-          originY: 0,
-          width: halfWidth,
-          height: height,
-        },
-      },
-    ],
-    { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG }
-  );
+  const source = ImageManipulator.manipulate(imageUri);
 
-  // Right Eye crop
-  const rightEyeResult = await ImageManipulator.manipulateAsync(
-    imageUri,
-    [
-      {
-        crop: {
-          originX: halfWidth,
-          originY: 0,
-          width: halfWidth,
-          height: height,
-        },
-      },
-    ],
-    { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG }
-  );
+  const left = await source
+    .crop({ originX: 0, originY: 0, width: halfWidth, height: imageHeight })
+    .renderAsync();
+  const leftSaved = await left.saveAsync({
+    compress: 0.95,
+    format: SaveFormat.JPEG,
+  });
+  left.release();
+
+  const right = await ImageManipulator.manipulate(imageUri)
+    .crop({
+      originX: halfWidth,
+      originY: 0,
+      width: halfWidth,
+      height: imageHeight,
+    })
+    .renderAsync();
+  const rightSaved = await right.saveAsync({
+    compress: 0.95,
+    format: SaveFormat.JPEG,
+  });
+  right.release();
 
   return {
-    leftEyeUri: leftEyeResult.uri,
-    rightEyeUri: rightEyeResult.uri,
+    leftEyeUri: leftSaved.uri,
+    rightEyeUri: rightSaved.uri,
     width: halfWidth,
-    height: height,
+    height: imageHeight,
   };
 }
 
-/**
- * Creates a StereoPair object from individual left/right URIs.
- */
 export function createStereoPairFromUris(
   leftUri: string,
   rightUri: string,
-  title: string = 'Imported Stereo 3D',
-  sourceType: StereoPair['sourceType'] = 'imported_spatial',
-  mediaType: 'photo' | 'video' = 'photo'
+  title: string,
+  sourceType: StereoPair['sourceType'],
+  mediaType: StereoPair['mediaType'] = 'photo'
 ): StereoPair {
   return {
-    id: `stereo_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+    id: `stereo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     title,
     leftUri,
     rightUri,

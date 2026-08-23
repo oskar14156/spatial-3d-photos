@@ -152,6 +152,126 @@ export const TRANSLATIONS = {
     error: 'Fehler',
     camera_permission_required: 'Kamerazugriff erforderlich',
     camera_permission_desc: 'Bitte erlaube den Kamerazugriff in den iOS-Einstellungen, um 3D-Fotos aufzunehmen.',
+
+    // Studio shell
+    studio_eyebrow_photo: 'STEREOFOTO',
+    studio_eyebrow_video: 'RÄUMLICHES VIDEO',
+    studio_untitled: 'Ohne Titel',
+    library_title: 'Mediathek',
+    library_count_one: '1 Projekt',
+    library_count_other: '{count} Projekte',
+    library_empty_title: 'Noch keine Aufnahmen',
+    library_empty_body: 'Nimm ein Stereopaar auf oder importiere ein räumliches Foto.',
+    capture_stereo: 'Stereo aufnehmen',
+    action_import: 'Importieren',
+    action_export: 'Exportieren',
+    action_settings: 'Einstellungen',
+    action_delete: 'Löschen',
+    action_adjust: 'Justierung',
+    badge_photo: 'FOTO',
+    badge_video: 'VIDEO',
+    badge_demo: 'DEMO',
+    badge_captured: 'AUFGENOMMEN',
+    badge_spatial: 'SPATIAL',
+    badge_stereo: 'STEREO',
+    source_built_in: 'Mitgeliefertes Beispiel',
+    source_hold_options: 'Halten für Optionen',
+
+    // Viewer controls
+    viewer_vr_mode: 'VR-Modus',
+    viewer_ipd: 'Augenabstand',
+    viewer_play: 'Abspielen',
+    viewer_pause: 'Pause',
+    viewer_mute: 'Ton aus',
+    viewer_unmute: 'Ton an',
+    viewer_speed: 'Tempo',
+    viewer_no_video_3d: 'Für Videos stehen Split und Schielblick zur Verfügung.',
+
+    // Capture guidance
+    guide_step_left: 'LINKS · 1 VON 2',
+    guide_step_right: 'RECHTS · 2 VON 2',
+    guide_move_right: 'Nach rechts bewegen',
+    guide_move_left: 'Nach links bewegen',
+    guide_remaining: 'noch {value}',
+    guide_ready: 'Position erreicht — auslösen',
+    guide_overshoot: 'Etwas zu weit — zurück',
+    guide_hold_level: 'iPhone gerade halten',
+    guide_tracking_unavailable: 'Bewegungsverfolgung nicht verfügbar',
+    guide_tracking_hint: 'Schätze den Abstand mit den Schritt-Hinweisen ab.',
+    guide_target: 'Ziel',
+    guide_moved: 'Bewegt',
+    guide_auto_capture: 'Auto-Auslöser',
+    capture_retake: 'Neu beginnen',
+    capture_left_hint: 'Motiv mittig, iPhone waagerecht, auslösen.',
+
+    // LiDAR
+    lidar_title: 'LiDAR-ABSTAND',
+    lidar_measure: 'Mit LiDAR messen',
+    lidar_back_to_camera: 'Zurück zur Kamera',
+    lidar_unavailable: 'LiDAR nicht verfügbar',
+    lidar_unavailable_hint: 'Wähle einen Abstand über die Voreinstellungen.',
+    lidar_aim: 'Auf Motiv zielen',
+    lidar_use_distance: 'Abstand übernehmen',
+    lidar_confidence_low: 'GERINGE GENAUIGKEIT',
+    lidar_confidence_medium: 'MITTLERE GENAUIGKEIT',
+    lidar_confidence_high: 'HOHE GENAUIGKEIT',
+    subject_label: 'Motiv',
+    stereo_base_label: 'STEREOBASIS',
+
+    // Import
+    import_sheet_subtitle: 'Wähle das tatsächliche Quellformat',
+    import_apple_title: 'Apple Spatial Foto oder Video',
+    import_apple_detail: 'HEIC-Stereopaar oder MV-HEVC vom iPhone',
+    import_sbs_title: 'Side-by-Side-Bild',
+    import_sbs_detail: 'Ein Bild mit linker und rechter Ansicht',
+    import_dual_title: 'Zwei Fotos',
+    import_dual_detail: 'Erst linkes, dann rechtes Bild wählen',
+    import_note: 'Medien werden vor dem Import geprüft. Normale Fotos werden nicht stillschweigend als Side-by-Side behandelt.',
+    import_inspecting: 'Räumliche Medien werden geprüft…',
+    import_extracting_photo: 'Linkes und rechtes Bild werden extrahiert…',
+    import_decoding_video: 'MV-HEVC wird in zwei Videospuren dekodiert…',
+    import_splitting_sbs: 'Side-by-Side-Bild wird geteilt…',
+    import_processing: 'Wird verarbeitet',
+    import_not_spatial_title: 'Kein Apple-Spatial-Medium',
+    import_not_spatial_body: 'Nutze „Side-by-Side-Bild“ für ein SBS-Foto oder „Zwei Fotos“ für ein Stereopaar.',
+    import_failed: 'Import fehlgeschlagen',
+    import_photos_permission: 'Zugriff auf Fotos erforderlich',
+    import_photos_permission_body: 'Erlaube den Zugriff, um räumliche und stereoskopische Medien zu importieren.',
+    import_wide_warning_title: 'Vermutlich kein Side-by-Side',
+    import_wide_warning_body: 'Das Bild ist nicht besonders breit. Es kann trotzdem geteilt werden — prüfe das Ergebnis.',
+
+    // Export
+    export_sheet_title: 'Exportieren',
+    export_saved_title: 'Gesichert',
+    export_saved_body: 'Der Export wurde zu „Fotos“ hinzugefügt.',
+    export_failed: 'Export fehlgeschlagen',
+    export_demo_blocked_title: 'Beispielszene',
+    export_demo_blocked_body: 'Mitgelieferte Beispiele sind Vektorgrafiken und lassen sich nicht exportieren. Nimm ein Stereopaar auf oder importiere eines.',
+    export_video_note: 'Räumliche MV-HEVC-Videos werden beim Import in echte Augenspuren zerlegt. Exportiert wird die jeweils gewählte Spur.',
+    export_save_library_short: 'In Fotos sichern',
+    export_share_short: 'Teilen',
+
+    // Review
+    review_name_placeholder: 'Name der 3D-Aufnahme',
+
+    // Settings
+    settings_capture_section: 'AUFNAHME',
+    settings_language_section: 'SPRACHE',
+    settings_about_section: 'ÜBER',
+    settings_auto_capture: 'Auto-Auslöser bei Zielposition',
+    settings_level_tolerance: 'Waagerecht-Toleranz',
+    settings_lidar_row: 'LiDAR-Abstand',
+    settings_lidar_value: 'Automatisch, wenn verfügbar',
+    settings_stereo_base_row: 'Stereobasis',
+    settings_stereo_base_value: 'Automatisch',
+    settings_open_ios: 'iOS-Einstellungen öffnen',
+    settings_footnote: 'Der Stereoabstand ist eine Komfortempfehlung, kein festes Gesetz. Nahe Motive werden begrenzt, weite Szenen dürfen bewusst Hyperstereo nutzen.',
+
+    // Camera permission
+    camera_permission_allow: 'Kamera erlauben',
+    camera_permission_body: 'Spatial3D benötigt die rückseitige Kamera für stereoskopische Aufnahmen.',
+    camera_error_title: 'Kamerafehler',
+    camera_error_body: 'Das Foto konnte nicht aufgenommen werden.',
   },
 
   en: {
@@ -305,6 +425,126 @@ export const TRANSLATIONS = {
     error: 'Error',
     camera_permission_required: 'Camera Access Required',
     camera_permission_desc: 'Please allow camera access in iOS Settings to capture 3D photos.',
+
+    // Studio shell
+    studio_eyebrow_photo: 'STEREO PHOTO',
+    studio_eyebrow_video: 'SPATIAL VIDEO',
+    studio_untitled: 'Untitled',
+    library_title: 'Library',
+    library_count_one: '1 project',
+    library_count_other: '{count} projects',
+    library_empty_title: 'No captures yet',
+    library_empty_body: 'Capture a stereo pair or import a spatial photo.',
+    capture_stereo: 'Capture Stereo',
+    action_import: 'Import',
+    action_export: 'Export',
+    action_settings: 'Settings',
+    action_delete: 'Delete',
+    action_adjust: 'Alignment',
+    badge_photo: 'PHOTO',
+    badge_video: 'VIDEO',
+    badge_demo: 'DEMO',
+    badge_captured: 'CAPTURED',
+    badge_spatial: 'SPATIAL',
+    badge_stereo: 'STEREO',
+    source_built_in: 'Built-in sample',
+    source_hold_options: 'Hold for options',
+
+    // Viewer controls
+    viewer_vr_mode: 'VR mode',
+    viewer_ipd: 'Eye separation',
+    viewer_play: 'Play',
+    viewer_pause: 'Pause',
+    viewer_mute: 'Mute',
+    viewer_unmute: 'Unmute',
+    viewer_speed: 'Speed',
+    viewer_no_video_3d: 'Videos support split and cross-eye viewing.',
+
+    // Capture guidance
+    guide_step_left: 'LEFT · 1 OF 2',
+    guide_step_right: 'RIGHT · 2 OF 2',
+    guide_move_right: 'Move right',
+    guide_move_left: 'Move left',
+    guide_remaining: '{value} to go',
+    guide_ready: 'In position — take the shot',
+    guide_overshoot: 'Slightly too far — come back',
+    guide_hold_level: 'Hold iPhone level',
+    guide_tracking_unavailable: 'Motion tracking unavailable',
+    guide_tracking_hint: 'Estimate the distance using the step hints.',
+    guide_target: 'Target',
+    guide_moved: 'Moved',
+    guide_auto_capture: 'Auto shutter',
+    capture_retake: 'Start over',
+    capture_left_hint: 'Centre the subject, hold level, shoot.',
+
+    // LiDAR
+    lidar_title: 'LiDAR DISTANCE',
+    lidar_measure: 'Measure with LiDAR',
+    lidar_back_to_camera: 'Back to camera',
+    lidar_unavailable: 'LiDAR unavailable',
+    lidar_unavailable_hint: 'Pick a distance from the presets instead.',
+    lidar_aim: 'Aim at the subject',
+    lidar_use_distance: 'Use this distance',
+    lidar_confidence_low: 'LOW CONFIDENCE',
+    lidar_confidence_medium: 'MEDIUM CONFIDENCE',
+    lidar_confidence_high: 'HIGH CONFIDENCE',
+    subject_label: 'subject',
+    stereo_base_label: 'STEREO BASE',
+
+    // Import
+    import_sheet_subtitle: 'Choose the actual source format',
+    import_apple_title: 'Apple spatial photo or video',
+    import_apple_detail: 'HEIC stereo pair or MV-HEVC from iPhone',
+    import_sbs_title: 'Side-by-side image',
+    import_sbs_detail: 'One image containing left and right views',
+    import_dual_title: 'Two photos',
+    import_dual_detail: 'Select the left image, then the right',
+    import_note: 'Media is inspected before import. Ordinary photos are not silently treated as side-by-side.',
+    import_inspecting: 'Inspecting spatial media…',
+    import_extracting_photo: 'Extracting left and right images…',
+    import_decoding_video: 'Decoding MV-HEVC into two eye tracks…',
+    import_splitting_sbs: 'Splitting side-by-side image…',
+    import_processing: 'Processing',
+    import_not_spatial_title: 'Not Apple spatial media',
+    import_not_spatial_body: 'Choose “Side-by-side image” for an SBS photo, or “Two photos” for a stereo pair.',
+    import_failed: 'Import failed',
+    import_photos_permission: 'Photos access required',
+    import_photos_permission_body: 'Allow access to import spatial and stereo media.',
+    import_wide_warning_title: 'This may not be side-by-side',
+    import_wide_warning_body: 'The image is not especially wide. It can still be split — verify the result.',
+
+    // Export
+    export_sheet_title: 'Export',
+    export_saved_title: 'Saved',
+    export_saved_body: 'The export was added to Photos.',
+    export_failed: 'Export failed',
+    export_demo_blocked_title: 'Sample scene',
+    export_demo_blocked_body: 'Built-in samples are vector graphics and cannot be exported. Capture or import a stereo pair instead.',
+    export_video_note: 'Spatial MV-HEVC is decoded into real eye tracks on import. The selected track is what gets exported.',
+    export_save_library_short: 'Save to Photos',
+    export_share_short: 'Share',
+
+    // Review
+    review_name_placeholder: 'Name this 3D capture',
+
+    // Settings
+    settings_capture_section: 'CAPTURE',
+    settings_language_section: 'LANGUAGE',
+    settings_about_section: 'ABOUT',
+    settings_auto_capture: 'Auto shutter at target position',
+    settings_level_tolerance: 'Level tolerance',
+    settings_lidar_row: 'LiDAR distance',
+    settings_lidar_value: 'Automatic when available',
+    settings_stereo_base_row: 'Stereo base',
+    settings_stereo_base_value: 'Automatic',
+    settings_open_ios: 'Open iOS Settings',
+    settings_footnote: 'The stereo base is a comfort recommendation, not a fixed law. Near subjects are clamped; distant scenes may intentionally use hyperstereo.',
+
+    // Camera permission
+    camera_permission_allow: 'Allow camera',
+    camera_permission_body: 'Spatial3D needs the rear camera for stereoscopic capture.',
+    camera_error_title: 'Camera error',
+    camera_error_body: 'The photo could not be captured.',
   },
 };
 
@@ -312,15 +552,43 @@ export type TranslationKey = keyof typeof TRANSLATIONS['de'];
 
 let currentLanguage: LanguageCode = 'de';
 
+const listeners = new Set<() => void>();
+
 export function setLanguage(lang: LanguageCode) {
+  if (lang === currentLanguage) return;
   currentLanguage = lang;
+  listeners.forEach((listener) => listener());
 }
 
 export function getLanguage(): LanguageCode {
   return currentLanguage;
 }
 
-export function t(key: TranslationKey): string {
-  const dict = TRANSLATIONS[currentLanguage] || TRANSLATIONS.de;
-  return (dict as Record<string, string>)[key] || key;
+/** Subscription plumbing for `useTranslation`, which drives re-renders. */
+export function subscribeToLanguage(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Resolves a key in the active language, falling back to German. Values may
+ * contain `{name}` placeholders that are substituted from `params`.
+ */
+export function t(
+  key: TranslationKey,
+  params?: Record<string, string | number>
+): string {
+  const dict = TRANSLATIONS[currentLanguage] ?? TRANSLATIONS.de;
+  const fallback = TRANSLATIONS.de as Record<string, string>;
+  let value = (dict as Record<string, string>)[key] ?? fallback[key] ?? key;
+
+  if (params) {
+    for (const [name, replacement] of Object.entries(params)) {
+      value = value.replace(`{${name}}`, String(replacement));
+    }
+  }
+
+  return value;
 }

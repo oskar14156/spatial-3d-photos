@@ -1,74 +1,80 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StereoPair, LanguageCode } from '../types';
+import type { LanguageCode, StereoAlignment, StereoPair } from '../types';
 import { DEMO_STEREO_PAIRS } from '../constants';
 
-const STORAGE_KEYS = {
-  PROJECTS: '@spatial3d_saved_projects_v1',
-  SETTINGS_LANG: '@spatial3d_settings_lang',
-  SETTINGS_BASE_RULE: '@spatial3d_settings_base_rule',
-  SETTINGS_HAPTICS: '@spatial3d_settings_haptics',
-};
+const KEYS = {
+  projects: '@spatial3d_saved_projects_v1',
+  language: '@spatial3d_settings_lang',
+} as const;
 
-export async function loadSavedStereoPairs(): Promise<StereoPair[]> {
+/**
+ * Reads only what the user actually saved.
+ *
+ * The demo pairs are deliberately *not* mixed in here: the previous version
+ * returned them as a fallback, so the very next save persisted the samples as
+ * if the user had created them, and deleting one brought it straight back.
+ */
+async function readProjects(): Promise<StereoPair[]> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.PROJECTS);
-    if (!raw) {
-      return DEMO_STEREO_PAIRS;
-    }
-    const parsed: StereoPair[] = JSON.parse(raw);
-    return parsed.length > 0 ? parsed : DEMO_STEREO_PAIRS;
-  } catch (err) {
-    console.warn('Failed to load saved stereo pairs:', err);
-    return DEMO_STEREO_PAIRS;
+    const raw = await AsyncStorage.getItem(KEYS.projects);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as StereoPair[]) : [];
+  } catch (error) {
+    console.warn('Could not read saved stereo pairs', error);
+    return [];
   }
 }
 
-export async function saveStereoPair(pair: StereoPair): Promise<void> {
+async function writeProjects(projects: StereoPair[]): Promise<void> {
   try {
-    const existing = await loadSavedStereoPairs();
-    const updated = [pair, ...existing.filter((p) => p.id !== pair.id)];
-    await AsyncStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
-  } catch (err) {
-    console.error('Failed to save stereo pair:', err);
+    await AsyncStorage.setItem(KEYS.projects, JSON.stringify(projects));
+  } catch (error) {
+    console.warn('Could not persist stereo pairs', error);
   }
+}
+
+/** Saved projects first, with the built-in samples appended for discovery. */
+export async function loadSavedStereoPairs(): Promise<StereoPair[]> {
+  const saved = await readProjects();
+  return [...saved, ...DEMO_STEREO_PAIRS];
+}
+
+export async function saveStereoPair(pair: StereoPair): Promise<void> {
+  const existing = await readProjects();
+  await writeProjects([pair, ...existing.filter((item) => item.id !== pair.id)]);
 }
 
 export async function updateStereoPairAlignment(
   pairId: string,
-  alignment: StereoPair['alignment']
+  alignment: StereoAlignment
 ): Promise<void> {
-  try {
-    const existing = await loadSavedStereoPairs();
-    const updated = existing.map((p) => (p.id === pairId ? { ...p, alignment } : p));
-    await AsyncStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
-  } catch (err) {
-    console.error('Failed to update stereo pair alignment:', err);
-  }
+  const existing = await readProjects();
+  if (!existing.some((item) => item.id === pairId)) return;
+  await writeProjects(
+    existing.map((item) => (item.id === pairId ? { ...item, alignment } : item))
+  );
 }
 
 export async function deleteStereoPair(pairId: string): Promise<void> {
-  try {
-    const existing = await loadSavedStereoPairs();
-    const updated = existing.filter((p) => p.id !== pairId);
-    await AsyncStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
-  } catch (err) {
-    console.error('Failed to delete stereo pair:', err);
-  }
+  const existing = await readProjects();
+  await writeProjects(existing.filter((item) => item.id !== pairId));
 }
 
 export async function loadLanguagePreference(): Promise<LanguageCode> {
   try {
-    const lang = await AsyncStorage.getItem(STORAGE_KEYS.SETTINGS_LANG);
-    return lang === 'en' ? 'en' : 'de';
+    return (await AsyncStorage.getItem(KEYS.language)) === 'en' ? 'en' : 'de';
   } catch {
     return 'de';
   }
 }
 
-export async function saveLanguagePreference(lang: LanguageCode): Promise<void> {
+export async function saveLanguagePreference(
+  language: LanguageCode
+): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEYS.SETTINGS_LANG, lang);
-  } catch (err) {
-    console.warn('Failed to save language preference:', err);
+    await AsyncStorage.setItem(KEYS.language, language);
+  } catch (error) {
+    console.warn('Could not persist the language preference', error);
   }
 }
