@@ -28,12 +28,26 @@ sagt das auch.
 
 ### Import
 
+Der Einstieg ist die **Galerie**, nicht ein Format-Dialog: die App zeigt deine
+eigene Fotomediathek als Raster, prüft im Hintergrund, welche Aufnahmen
+tatsächlich räumlich sind, markiert sie mit „3D" und sortiert sie nach vorn.
+Mehrfachauswahl, ein Filter „nur räumlich", und ein Knopf, der **alle**
+gefundenen räumlichen Aufnahmen auf einmal importiert.
+
+Die Prüfung läuft nur über Dateien, die überhaupt in Frage kommen (HEIC, HEIF,
+MOV) und mit höchstens zwei gleichzeitig, damit eine Mediathek mit Tausenden
+Bildern nicht Stück für Stück dekodiert wird.
+
+Unterstützte Quellen:
+
 - **Apple Spatial Photo / Video** — HEIC-Stereopaare und MV-HEVC werden nativ
   in echte linke und rechte Kanäle zerlegt. Der Original-Asset wird über die
   Mediathek gelesen, weil der Image Picker eine transkodierte Kopie liefert und
-  genau dabei die Stereo-Daten verloren gehen.
-- **Side-by-Side-Bild** — einmal dekodiert, zweimal beschnitten.
-- **Zwei Fotos** — linkes und rechtes Auge einzeln wählen.
+  genau dabei die Stereo-Daten verloren gehen. **Nur iOS** — siehe unten.
+- **Side-by-Side-Bild** — einmal dekodiert, zweimal beschnitten. Wird beim
+  Galerie-Import automatisch erkannt, wenn ein Bild etwa doppelt so breit wie
+  hoch ist.
+- **Zwei Fotos** — linkes und rechtes Auge einzeln wählen (unter „Manuell").
 
 ### Betrachtung
 
@@ -44,6 +58,11 @@ sagt das auch.
 | Rot-Cyan-Anaglyph (Farbe / Halbfarbe / Mono) | ✓ | — |
 | Wiggle 3D (6–20 fps, Touch-Scrubbing) | ✓ | — |
 | Gyro-Parallaxe | ✓ | — |
+
+Die Gyro-Parallaxe zeigt als Linie an, wo zwischen den Augen du gerade stehst
+und wie viel Weg in jede Richtung bleibt — Neigen und Ziehen bewegen denselben
+Regler. Im Sucher liegt zusätzlich eine künstliche Horizontlinie über dem Bild:
+sie dreht sich mit dem Gerät und wird grün, sobald es waagerecht ist.
 
 Das Anaglyph ist eine echte Kanaltrennung: jedes Auge wird mit einer reinen
 Primärfarbe multipliziert (links behält R, rechts G und B), danach werden beide
@@ -88,6 +107,35 @@ Typen prüfen:
 npm run ts:check
 ```
 
+### Android
+
+Der gesamte JavaScript-Teil läuft auf beiden Plattformen: Oberfläche, alle fünf
+Betrachtungsmodi, Mediathek, Galerie-Import, Export, Sprachen, Hell/Dunkel.
+SF Symbols werden auf Android durch Material-Icons ersetzt, Liquid Glass durch
+einen Blur.
+
+Nativ gibt es zwei Kotlin-Module mit derselben Schnittstelle wie unter iOS:
+
+- `spatial-capture` misst die Bewegung mit **ARCore** statt ARKit — gleiche
+  Anker-Logik, gleiche Bildschirmachsen, gleiche Ereignisse. Tiefe kommt aus
+  der ARCore Depth API.
+- `spatial-media` erledigt alle Exportformate inklusive echtem Anaglyph-Kanal-
+  trennung, und liest die EXIF-Ausrichtung selbst, weil `BitmapFactory` sie
+  ignoriert.
+
+**Was Android nicht kann:** Apple Spatial Photos und Videos importieren. Es
+gibt dort keine Schnittstelle, um HEIC-Stereogruppen zu lesen, und MediaCodec
+dekodiert bei MV-HEVC nur die Basisebene. Die App erkennt solche Dateien und
+sagt das ausdrücklich, statt still ein einäugiges Bild zu importieren.
+
+```bash
+npx expo run:android --device
+```
+
+Dafür braucht es das Android SDK (Android Studio) und ein Gerät mit
+[ARCore-Unterstützung](https://developers.google.com/ar/devices) für die
+Bewegungsführung. Ohne ARCore fällt die Aufnahme auf Abstands-Presets zurück.
+
 ### Anforderungen
 
 - iOS 15.1 oder neuer.
@@ -100,15 +148,17 @@ npm run ts:check
 ### Aufbau
 
 ```
-modules/spatial-capture   ARKit-Sucher: Tiefe, Bewegung, Stills
+modules/spatial-capture   ARKit- bzw. ARCore-Sucher: Tiefe, Bewegung, Stills
 modules/spatial-media     HEIC/MV-HEVC-Splitting und Foto-Export
 src/theme                 Design-Tokens (Farben, Typografie, Radien)
+src/components/common     Icon-Abstraktion, Glas, Tab-Leiste, Leer-Zustände
 src/components/viewer     Renderflächen, Bedienleiste, Justierung
+src/components/importer   Galerie-Raster und manuelle Importwege
 src/components/camera     Aufnahme, Führung, Überprüfung
-src/screens/StudioScreen  Die einzige Bildschirmansicht
+src/screens               Studio und Mediathek, zwei Tabs über einer Liste
 ```
 
 **Layout-Vertrag:** Der Viewer besitzt genau einen Rahmen, und *nichts* anderes
 zeichnet darin. Die Renderflächen füllen ihn absolut; Modus-Bedienung,
-Justierung und Mediathek stapeln sich darunter im normalen Fluss. Nur das
-Aufnahme-Dock schwebt.
+Justierung und Metadaten stapeln sich darunter im normalen Fluss. Nur die
+Tab-Leiste schwebt.

@@ -1,0 +1,40 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+group = 'expo.modules.spatialcapture'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.spatialcapture'
+  compileSdk safeExtGet('compileSdkVersion', 35)
+
+  defaultConfig {
+    minSdk safeExtGet('minSdkVersion', 24)
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = '17'
+  }
+}
+
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+repositories {
+  mavenCentral()
+  google()
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:${safeExtGet('kotlinVersion', '2.0.21')}"
+  // World tracking. ARCore is the only Android API that can measure how far
+  // the phone actually travelled between the two shots.
+  implementation 'com.google.ar:core:1.45.0'
+}

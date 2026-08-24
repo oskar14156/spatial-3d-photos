@@ -1,7 +1,10 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "podspecPath": "ios/SpatialMedia.podspec",
     "modules": ["SpatialMediaModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.spatialmedia.SpatialMediaModule"]
   }
 }

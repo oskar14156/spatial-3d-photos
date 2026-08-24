@@ -10,13 +10,14 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { Icon } from '../components/common/Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StereoPair } from '../types';
 import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../theme';
 import { useTranslation } from '../i18n/useTranslation';
 import { hapticFeedback } from '../utils/haptics';
 import { IOSIconButton } from '../components/common/IOSIconButton';
+import { EmptyState } from '../components/common/EmptyState';
 
 type Props = {
   projects: StereoPair[];
@@ -24,6 +25,7 @@ type Props = {
   onOpen: (pair: StereoPair) => void;
   onDelete: (pairId: string) => void;
   onImport: () => void;
+  onCapture: () => void;
 };
 
 const GUTTER = spacing.md;
@@ -40,6 +42,7 @@ export const LibraryScreen: React.FC<Props> = ({
   onOpen,
   onDelete,
   onImport,
+  onCapture,
 }) => {
   const { t } = useTranslation();
   const { palette } = useTheme();
@@ -54,7 +57,6 @@ export const LibraryScreen: React.FC<Props> = ({
 
   const confirmDelete = useCallback(
     (project: StereoPair) => {
-      if (project.sourceType === 'demo') return;
       hapticFeedback.medium();
 
       if (Platform.OS !== 'ios') {
@@ -77,6 +79,34 @@ export const LibraryScreen: React.FC<Props> = ({
     [onDelete, t]
   );
 
+  if (!projects.length) {
+    return (
+      <View style={[styles.emptyRoot, { paddingTop: insets.top }]}>
+        <View style={styles.nav}>
+          <Text style={styles.title}>{t('library_title')}</Text>
+        </View>
+        <EmptyState
+          symbol="photo.on.rectangle.angled"
+          title={t('empty_library_title')}
+          body={t('empty_library_body')}
+          actions={[
+            {
+              label: t('action_open_gallery'),
+              symbol: 'photo.on.rectangle',
+              primary: true,
+              onPress: onImport,
+            },
+            {
+              label: t('capture_stereo'),
+              symbol: 'camera.fill',
+              onPress: onCapture,
+            },
+          ]}
+        />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
@@ -89,8 +119,8 @@ export const LibraryScreen: React.FC<Props> = ({
       <View style={styles.nav}>
         <Text style={styles.title}>{t('library_title')}</Text>
         <IOSIconButton
-          symbol="square.and.arrow.down.fill"
-          accessibilityLabel={t('action_import')}
+          symbol="photo.on.rectangle"
+          accessibilityLabel={t('action_open_gallery')}
           onPress={onImport}
         />
       </View>
@@ -100,15 +130,13 @@ export const LibraryScreen: React.FC<Props> = ({
       <View style={styles.grid}>
         {projects.map((project) => {
           const selected = project.id === currentPairId;
-          const isDemo = project.sourceType === 'demo';
-
           return (
             <Pressable
               key={project.id}
               accessibilityRole="button"
               accessibilityState={{ selected }}
               accessibilityLabel={project.title}
-              accessibilityHint={isDemo ? undefined : t('source_hold_options')}
+              accessibilityHint={t('source_hold_options')}
               onPress={() => {
                 hapticFeedback.selection();
                 onOpen(project);
@@ -128,10 +156,10 @@ export const LibraryScreen: React.FC<Props> = ({
                   />
                 ) : (
                   <View style={styles.videoPlaceholder}>
-                    <SymbolView
+                    <Icon
                       name="video.fill"
                       size={26}
-                      tintColor="rgba(255,255,255,0.7)"
+                      color="rgba(255,255,255,0.7)"
                       style={styles.videoGlyph}
                     />
                   </View>
@@ -144,19 +172,17 @@ export const LibraryScreen: React.FC<Props> = ({
                       ? t('badge_spatial')
                       : project.sourceType === 'camera_chacha'
                       ? t('badge_captured')
-                      : isDemo
-                      ? t('badge_demo')
                       : t('badge_stereo')}
                   </Text>
                 </View>
 
                 {selected && (
                   <View style={styles.tick}>
-                    <SymbolView
+                    <Icon
                       name="checkmark"
                       size={11}
                       weight="bold"
-                      tintColor={palette.onAccent}
+                      color={palette.onAccent}
                       style={styles.tickGlyph}
                     />
                   </View>
@@ -179,14 +205,14 @@ export const LibraryScreen: React.FC<Props> = ({
         onPress={onImport}
         style={({ pressed }) => [styles.importCta, pressed && styles.pressed]}
       >
-        <SymbolView
+        <Icon
           name="plus"
           size={16}
           weight="semibold"
-          tintColor={palette.blue}
+          color={palette.blue}
           style={styles.importGlyph}
         />
-        <Text style={styles.importText}>{t('library_import_cta')}</Text>
+        <Text style={styles.importText}>{t('action_open_gallery')}</Text>
       </Pressable>
     </ScrollView>
   );
@@ -203,6 +229,7 @@ function formatDate(timestamp: number) {
 const createStyles = (palette: Palette) =>
   StyleSheet.create({
     content: { paddingHorizontal: spacing.lg },
+    emptyRoot: { flex: 1, paddingHorizontal: spacing.lg },
     nav: {
       minHeight: 52,
       flexDirection: 'row',

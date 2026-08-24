@@ -128,36 +128,3 @@ const DEMO_PORTRAIT_RIGHT = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.o
   <rect x="224" y="470" width="60" height="70" rx="6" fill="%23f43f5e"/>
   <text x="40" y="70" fill="%23ffffff" font-size="28" font-weight="bold" font-family="sans-serif">RIGHT EYE (Portrait 6.5cm)</text>
 </svg>`;
-
-export const DEMO_STEREO_PAIRS: StereoPair[] = [
-  {
-    id: 'demo_mountain_matterhorn',
-    title: 'Matterhorn Alpine Peak',
-    leftUri: DEMO_MOUNTAIN_LEFT,
-    rightUri: DEMO_MOUNTAIN_RIGHT,
-    mediaType: 'photo',
-    sourceType: 'demo',
-    createdAt: Date.now(),
-    description: 'Hyperstereo capture with 50m baseline for distant mountain depth.',
-    baselineDistanceMeters: 50.0,
-    subjectDistanceMeters: 1500.0,
-    subjectCategory: 'mountain',
-    alignment: { ...DEFAULT_ALIGNMENT },
-    aspectRatio: 800 / 600,
-  },
-  {
-    id: 'demo_portrait_studio',
-    title: 'Studio Portrait 3D',
-    leftUri: DEMO_PORTRAIT_LEFT,
-    rightUri: DEMO_PORTRAIT_RIGHT,
-    mediaType: 'photo',
-    sourceType: 'demo',
-    createdAt: Date.now() - 100000,
-    description: 'Human eye interpupillary distance (6.5cm baseline) portrait.',
-    baselineDistanceMeters: 0.065,
-    subjectDistanceMeters: 2.0,
-    subjectCategory: 'portrait',
-    alignment: { ...DEFAULT_ALIGNMENT },
-    aspectRatio: 800 / 600,
-  },
-];

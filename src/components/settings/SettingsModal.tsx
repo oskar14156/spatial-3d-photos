@@ -7,7 +7,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SFSymbol, SymbolView } from 'expo-symbols';
+import type { SFSymbol } from 'expo-symbols';
+import { Icon } from '../common/Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LanguageCode } from '../../types';
 import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
@@ -121,7 +122,7 @@ function InfoRow({
 
   return (
     <View style={styles.row} accessible accessibilityLabel={`${title}, ${value}`}>
-      <SymbolView name={symbol} size={18} tintColor={palette.blue} style={styles.glyph} />
+      <Icon name={symbol} size={18} color={palette.blue} style={styles.glyph} />
       <Text style={styles.rowTitle}>{title}</Text>
       <Text style={styles.rowValue}>{value}</Text>
     </View>
@@ -150,21 +151,21 @@ function ActionRow({
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      <SymbolView name={symbol} size={18} tintColor={palette.blue} style={styles.glyph} />
+      <Icon name={symbol} size={18} color={palette.blue} style={styles.glyph} />
       <Text style={styles.rowTitle}>{title}</Text>
       {selected ? (
-        <SymbolView
+        <Icon
           name="checkmark"
           size={16}
           weight="semibold"
-          tintColor={palette.blue}
+          color={palette.blue}
           style={styles.trailingGlyph}
         />
       ) : selected === undefined ? (
-        <SymbolView
+        <Icon
           name="arrow.up.forward.app"
           size={15}
-          tintColor={palette.labelQuaternary}
+          color={palette.labelQuaternary}
           style={styles.trailingGlyph}
         />
       ) : (

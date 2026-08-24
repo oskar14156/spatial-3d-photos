@@ -1,6 +1,7 @@
 import React from 'react';
+import type { SharedValue } from 'react-native-reanimated';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { Icon } from '../common/Icon';
 import type { AnaglyphColorMode, StereoPair, ViewMode, ViewerOptions } from '../../types';
 import { type Palette, radius, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -8,6 +9,7 @@ import { hapticFeedback } from '../../utils/haptics';
 import { Segmented } from '../common/Segmented';
 import { Slider } from '../common/Slider';
 import type { VideoHandle, VideoStatus } from './VideoSurface';
+import { TiltIndicator } from './TiltIndicator';
 
 type Props = {
   pair: StereoPair;
@@ -16,6 +18,8 @@ type Props = {
   onChangeOptions: (patch: Partial<ViewerOptions>) => void;
   videoStatus: VideoStatus;
   videoRef: React.RefObject<VideoHandle | null>;
+  /** Live gyro position, shared with the parallax surface. */
+  tiltX: SharedValue<number>;
 };
 
 const WIGGLE_RATES = [6, 10, 15, 20];
@@ -32,6 +36,7 @@ export function ViewerControls({
   onChangeOptions,
   videoStatus,
   videoRef,
+  tiltX,
 }: Props) {
   const { t } = useTranslation();
   const { palette } = useTheme();
@@ -58,10 +63,10 @@ export function ViewerControls({
             }}
             style={({ pressed }) => [styles.roundButton, pressed && styles.pressed]}
           >
-            <SymbolView
+            <Icon
               name={options.wigglePlaying ? 'pause.fill' : 'play.fill'}
               size={15}
-              tintColor={palette.canvas}
+              color={palette.canvas}
               style={styles.roundGlyph}
             />
           </Pressable>
@@ -113,17 +118,17 @@ export function ViewerControls({
               pressed && styles.pressed,
             ]}
           >
-            <SymbolView
+            <Icon
               name="visionpro"
               size={17}
-              tintColor={options.vrMode ? palette.blue : palette.labelSecondary}
+              color={options.vrMode ? palette.blue : palette.labelSecondary}
               style={styles.toggleGlyph}
             />
             <Text style={[styles.toggleLabel, options.vrMode && styles.toggleLabelOn]}>
               {t('viewer_vr_mode')}
             </Text>
             {options.vrMode && (
-              <SymbolView name="checkmark" size={13} weight="semibold" tintColor={palette.blue} />
+              <Icon name="checkmark" size={13} weight="semibold" color={palette.blue} />
             )}
           </Pressable>
 
@@ -140,6 +145,16 @@ export function ViewerControls({
             />
           )}
         </View>
+      );
+
+    case 'parallax_tilt':
+      return (
+        <TiltIndicator
+          tiltX={tiltX}
+          leftLabel={t('viewer_eye_left')}
+          rightLabel={t('viewer_eye_right')}
+          hint={t('viewer_tilt_hint')}
+        />
       );
 
     default:
@@ -179,7 +194,7 @@ function VideoControls({
           onPress={() => videoRef.current?.seekBy(-5)}
           style={({ pressed }) => pressed && styles.pressed}
         >
-          <SymbolView name="gobackward.5" size={21} tintColor={palette.label} style={styles.glyph} />
+          <Icon name="gobackward.5" size={21} color={palette.label} style={styles.glyph} />
         </Pressable>
 
         <Pressable
@@ -192,10 +207,10 @@ function VideoControls({
           }}
           style={({ pressed }) => [styles.roundButton, pressed && styles.pressed]}
         >
-          <SymbolView
+          <Icon
             name={status.playing ? 'pause.fill' : 'play.fill'}
             size={15}
-            tintColor={palette.canvas}
+            color={palette.canvas}
             style={styles.roundGlyph}
           />
         </Pressable>
@@ -207,7 +222,7 @@ function VideoControls({
           onPress={() => videoRef.current?.seekBy(5)}
           style={({ pressed }) => pressed && styles.pressed}
         >
-          <SymbolView name="goforward.5" size={21} tintColor={palette.label} style={styles.glyph} />
+          <Icon name="goforward.5" size={21} color={palette.label} style={styles.glyph} />
         </Pressable>
 
         <View style={styles.spacer} />
@@ -219,10 +234,10 @@ function VideoControls({
           onPress={() => videoRef.current?.setMuted(!status.muted)}
           style={({ pressed }) => pressed && styles.pressed}
         >
-          <SymbolView
+          <Icon
             name={status.muted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'}
             size={19}
-            tintColor={palette.label}
+            color={palette.label}
             style={styles.glyph}
           />
         </Pressable>

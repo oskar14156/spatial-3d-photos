@@ -1,4 +1,5 @@
 import React from 'react';
+import type { SharedValue } from 'react-native-reanimated';
 import { StyleSheet, View } from 'react-native';
 import type { StereoPair, ViewMode, ViewerOptions } from '../../types';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -18,6 +19,8 @@ type Props = {
   options: ViewerOptions;
   onVideoStatus: (status: VideoStatus) => void;
   videoRef: React.Ref<VideoHandle>;
+  /** Live gyro position for the parallax mode, shared with its controls. */
+  tiltX: SharedValue<number>;
 };
 
 /**
@@ -35,6 +38,7 @@ export function StereoViewer({
   options,
   onVideoStatus,
   videoRef,
+  tiltX,
 }: Props) {
   const { t } = useTranslation();
 
@@ -68,7 +72,7 @@ export function StereoViewer({
       case 'anaglyph':
         return <AnaglyphSurface pair={pair} mode={options.anaglyphMode} />;
       case 'parallax_tilt':
-        return <ParallaxSurface pair={pair} />;
+        return <ParallaxSurface pair={pair} tiltX={tiltX} />;
       case 'wigglegram':
         return (
           <WiggleSurface

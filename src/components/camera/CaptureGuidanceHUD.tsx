@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { Icon } from '../common/Icon';
 import { mediaPalette as palette, radius, type } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { formatMetricDistance } from '../../utils/stereobaseCalculator';
@@ -28,10 +28,10 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
     return (
       <NativeGlass style={styles.card}>
         <View style={styles.headlineRow}>
-          <SymbolView
+          <Icon
             name="exclamationmark.triangle.fill"
             size={16}
-            tintColor={palette.orange}
+            color={palette.orange}
             style={styles.glyph}
           />
           <Text style={styles.headline}>{t('guide_tracking_unavailable')}</Text>
@@ -61,10 +61,10 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
   return (
     <NativeGlass style={styles.card}>
       <View style={styles.headlineRow}>
-        <SymbolView
+        <Icon
           name={iconFor(guidance)}
           size={16}
-          tintColor={tone}
+          color={tone}
           style={styles.glyph}
         />
         <Text style={[styles.headline, { color: tone }]} numberOfLines={1}>

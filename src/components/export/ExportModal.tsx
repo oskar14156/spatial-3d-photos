@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import { SFSymbol, SymbolView } from 'expo-symbols';
+import type { SFSymbol } from 'expo-symbols';
+import { Icon } from '../common/Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AnaglyphColorMode, ExportFormat, StereoPair } from '../../types';
 import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
@@ -129,12 +130,6 @@ export const ExportModal: React.FC<Props> = ({
     );
   }, [formats]);
 
-  /**
-   * Built-in samples are inline SVG data URIs, so there is no file for the
-   * native exporter to open. Refusing up front beats a decode failure.
-   */
-  const isDemo = stereoPair.sourceType === 'demo';
-
   async function createOutput(): Promise<string> {
     if (!isPhoto) {
       return format === 'right_eye_only' ? stereoPair.rightUri : stereoPair.leftUri;
@@ -147,11 +142,6 @@ export const ExportModal: React.FC<Props> = ({
   }
 
   async function run(action: 'share' | 'save') {
-    if (isDemo) {
-      Alert.alert(t('export_demo_blocked_title'), t('export_demo_blocked_body'));
-      return;
-    }
-
     setBusy(true);
     try {
       if (action === 'save') {
@@ -209,10 +199,10 @@ export const ExportModal: React.FC<Props> = ({
                   }}
                   style={({ pressed }) => [styles.row, pressed && styles.pressed]}
                 >
-                  <SymbolView
+                  <Icon
                     name={row.symbol}
                     size={19}
-                    tintColor={selected ? palette.blue : palette.labelSecondary}
+                    color={selected ? palette.blue : palette.labelSecondary}
                     style={styles.rowGlyph}
                   />
                   <View style={styles.rowText}>
@@ -222,11 +212,11 @@ export const ExportModal: React.FC<Props> = ({
                     </Text>
                   </View>
                   {selected && (
-                    <SymbolView
+                    <Icon
                       name="checkmark"
                       size={15}
                       weight="semibold"
-                      tintColor={palette.blue}
+                      color={palette.blue}
                       style={styles.checkGlyph}
                     />
                   )}
@@ -236,9 +226,6 @@ export const ExportModal: React.FC<Props> = ({
           })}
         </View>
 
-        {isDemo && (
-          <Text style={styles.note}>{t('export_demo_blocked_body')}</Text>
-        )}
         {!isPhoto && <Text style={styles.note}>{t('export_video_note')}</Text>}
       </ScrollView>
 
@@ -246,17 +233,17 @@ export const ExportModal: React.FC<Props> = ({
         <Pressable
           accessibilityRole="button"
           onPress={() => run('save')}
-          disabled={busy || isDemo}
+          disabled={busy}
           style={({ pressed }) => [
             styles.secondary,
-            (busy || isDemo) && styles.disabled,
+            (busy) && styles.disabled,
             pressed && styles.pressed,
           ]}
         >
-          <SymbolView
+          <Icon
             name="square.and.arrow.down"
             size={18}
-            tintColor={palette.label}
+            color={palette.label}
             style={styles.footerGlyph}
           />
           <Text style={styles.secondaryText}>{t('export_save_library_short')}</Text>
@@ -265,10 +252,10 @@ export const ExportModal: React.FC<Props> = ({
         <Pressable
           accessibilityRole="button"
           onPress={() => run('share')}
-          disabled={busy || isDemo}
+          disabled={busy}
           style={({ pressed }) => [
             styles.primary,
-            (busy || isDemo) && styles.disabled,
+            (busy) && styles.disabled,
             pressed && styles.pressed,
           ]}
         >
@@ -276,10 +263,10 @@ export const ExportModal: React.FC<Props> = ({
             <ActivityIndicator color={palette.label} />
           ) : (
             <>
-              <SymbolView
+              <Icon
                 name="square.and.arrow.up"
                 size={18}
-                tintColor={palette.label}
+                color={palette.label}
                 style={styles.footerGlyph}
               />
               <Text style={styles.primaryText}>{t('export_share_short')}</Text>

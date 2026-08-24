@@ -3,6 +3,7 @@ import { Image, StyleSheet, View } from 'react-native';
 import { DeviceMotion } from 'expo-sensors';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -11,7 +12,14 @@ import type { StereoPair } from '../../types';
 import { spring } from '../../theme';
 import { eyeTransforms, resolveEyes } from './eyeGeometry';
 
-type Props = { pair: StereoPair };
+type Props = {
+  pair: StereoPair;
+  /**
+   * Owned by the screen so the controls can draw a matching readout without
+   * the value ever crossing onto the JS thread.
+   */
+  tiltX: SharedValue<number>;
+};
 
 /** Device roll, in radians, that maps to a full swing to one eye. */
 const ROLL_RANGE = 0.45;
@@ -25,12 +33,11 @@ const PITCH_RANGE = 0.45;
  * never crosses into React. Previously each sample triggered two `setState`
  * calls, re-rendering the image tree ~60×/s.
  */
-export function ParallaxSurface({ pair }: Props) {
+export function ParallaxSurface({ pair, tiltX }: Props) {
   const eyes = resolveEyes(pair);
   const transforms = eyeTransforms(pair.alignment);
 
-  /** -1 … 1 on each axis. */
-  const tiltX = useSharedValue(0);
+  /** -1 … 1; the horizontal axis is lifted to the screen. */
   const tiltY = useSharedValue(0);
   const dragging = useSharedValue(false);
   const dragStartX = useSharedValue(0);

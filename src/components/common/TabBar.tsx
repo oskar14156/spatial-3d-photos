@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SFSymbol, SymbolView } from 'expo-symbols';
+import type { SFSymbol } from 'expo-symbols';
+import { Icon } from './Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
@@ -66,11 +67,11 @@ export function TabBar({ active, onChange, onCapture, tabs, captureLabel }: Prop
             }}
             style={styles.capture}
           >
-            <SymbolView
+            <Icon
               name="camera.fill"
               size={22}
               weight="semibold"
-              tintColor={palette.onAccent}
+              color={palette.onAccent}
               style={styles.captureGlyph}
             />
           </Pressable>
@@ -110,11 +111,11 @@ function Tab({
       }}
       style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
     >
-      <SymbolView
+      <Icon
         name={item.symbol}
         size={19}
         weight={active ? 'semibold' : 'regular'}
-        tintColor={active ? palette.blue : palette.labelSecondary}
+        color={active ? palette.blue : palette.labelSecondary}
         style={styles.tabGlyph}
       />
       <Text

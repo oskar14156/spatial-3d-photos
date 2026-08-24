@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { LanguageCode, StereoAlignment, StereoPair } from '../types';
-import { DEMO_STEREO_PAIRS } from '../constants';
 
 const KEYS = {
   projects: '@spatial3d_saved_projects_v1',
@@ -37,7 +36,7 @@ async function writeProjects(projects: StereoPair[]): Promise<void> {
 /** Saved projects first, with the built-in samples appended for discovery. */
 export async function loadSavedStereoPairs(): Promise<StereoPair[]> {
   const saved = await readProjects();
-  return [...saved, ...DEMO_STEREO_PAIRS];
+  return saved;
 }
 
 export async function saveStereoPair(pair: StereoPair): Promise<void> {

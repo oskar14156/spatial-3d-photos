@@ -7,10 +7,10 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { Icon } from '../components/common/Icon';
+import { useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StereoPair, ViewMode, ViewerOptions } from '../types';
-import { DEMO_STEREO_PAIRS } from '../constants';
 import {
   type Palette,
   radius,
@@ -35,6 +35,8 @@ import { NativeGlass } from '../components/common/NativeGlass';
 import { TabBar, type TabId } from '../components/common/TabBar';
 import { ChaChaCamera } from '../components/camera/ChaChaCamera';
 import { MediaImporterModal } from '../components/importer/MediaImporterModal';
+import { GalleryPicker } from '../components/importer/GalleryPicker';
+import { EmptyState } from '../components/common/EmptyState';
 import { ExportModal } from '../components/export/ExportModal';
 import { SettingsModal } from '../components/settings/SettingsModal';
 import { AlignmentPanel } from '../components/viewer/AlignmentPanel';
@@ -82,19 +84,25 @@ export const StudioScreen: React.FC = () => {
   const landscape = width > height;
 
   const [tab, setTab] = useState<TabId>('studio');
-  const [pairs, setPairs] = useState<StereoPair[]>(DEMO_STEREO_PAIRS);
-  const [currentId, setCurrentId] = useState<string>(DEMO_STEREO_PAIRS[0].id);
+  const [pairs, setPairs] = useState<StereoPair[]>([]);
+  const [currentId, setCurrentId] = useState<string>('');
+  const [loaded, setLoaded] = useState(false);
   const [mode, setMode] = useState<ViewMode>('wigglegram');
   const [options, setOptions] = useState<ViewerOptions>(DEFAULT_OPTIONS);
   const [videoStatus, setVideoStatus] = useState<VideoStatus>(IDLE_VIDEO_STATUS);
 
   const [showCamera, setShowCamera] = useState(false);
   const [showAlignment, setShowAlignment] = useState(false);
+  const [showGallery, setShowGallery] = useState(false);
   const [showImporter, setShowImporter] = useState(false);
   const [showExporter, setShowExporter] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   const videoRef = useRef<VideoHandle | null>(null);
+
+  // Owned here so the parallax surface and its readout share one value and
+  // neither has to round-trip through React state at 30 Hz.
+  const tiltX = useSharedValue(0);
 
   // Falling back to the first pair keeps the screen valid if the selected
   // project is deleted while it is on screen.
@@ -114,10 +122,9 @@ export const StudioScreen: React.FC = () => {
       if (cancelled) return;
 
       setLanguage(language);
-      if (saved.length) {
-        setPairs(saved);
-        setCurrentId(saved[0].id);
-      }
+      setPairs(saved);
+      if (saved.length) setCurrentId(saved[0].id);
+      setLoaded(true);
     })();
 
     return () => {
@@ -147,6 +154,16 @@ export const StudioScreen: React.FC = () => {
     setTab('studio');
   }, []);
 
+  const addPairs = useCallback(async (incoming: StereoPair[]) => {
+    for (const pair of incoming) await saveStereoPair(pair);
+    setPairs((prev) => {
+      const ids = new Set(incoming.map((pair) => pair.id));
+      return [...incoming, ...prev.filter((pair) => !ids.has(pair.id))];
+    });
+    if (incoming.length) setCurrentId(incoming[0].id);
+    setTab(incoming.length > 1 ? 'library' : 'studio');
+  }, []);
+
   const changeAlignment = useCallback(
     (alignment: StereoPair['alignment']) => {
       if (!current) return;
@@ -164,10 +181,7 @@ export const StudioScreen: React.FC = () => {
 
   const removePair = useCallback(async (id: string) => {
     await deleteStereoPair(id);
-    setPairs((prev) => {
-      const next = prev.filter((pair) => pair.id !== id);
-      return next.length ? next : DEMO_STEREO_PAIRS;
-    });
+    setPairs((prev) => prev.filter((pair) => pair.id !== id));
   }, []);
 
   if (showCamera) {
@@ -182,7 +196,55 @@ export const StudioScreen: React.FC = () => {
     );
   }
 
-  if (!current) return <View style={styles.root} />;
+  if (!current) {
+    return (
+      <View style={styles.root}>
+        {loaded && (
+          <EmptyState
+            symbol="cube.transparent"
+            title={t('empty_studio_title')}
+            body={t('empty_library_body')}
+            actions={[
+              {
+                label: t('capture_stereo'),
+                symbol: 'camera.fill',
+                primary: true,
+                onPress: () => setShowCamera(true),
+              },
+              {
+                label: t('action_open_gallery'),
+                symbol: 'photo.on.rectangle',
+                onPress: () => setShowGallery(true),
+              },
+            ]}
+          />
+        )}
+
+        <TabBar
+          active={tab}
+          onChange={setTab}
+          onCapture={() => setShowCamera(true)}
+          captureLabel={t('capture_stereo')}
+          tabs={TAB_ITEMS(t)}
+        />
+
+        <GalleryPicker
+          visible={showGallery}
+          onClose={() => setShowGallery(false)}
+          onImported={addPairs}
+          onOpenManual={() => {
+            setShowGallery(false);
+            setShowImporter(true);
+          }}
+        />
+        <MediaImporterModal
+          visible={showImporter}
+          onClose={() => setShowImporter(false)}
+          onImportComplete={addPair}
+        />
+      </View>
+    );
+  }
 
   const availableModes = MODES.filter((item) => isModeSupported(current, item));
 
@@ -197,7 +259,8 @@ export const StudioScreen: React.FC = () => {
             setTab('studio');
           }}
           onDelete={removePair}
-          onImport={() => setShowImporter(true)}
+          onImport={() => setShowGallery(true)}
+          onCapture={() => setShowCamera(true)}
         />
       ) : (
         <ScrollView
@@ -244,6 +307,7 @@ export const StudioScreen: React.FC = () => {
               options={options}
               onVideoStatus={setVideoStatus}
               videoRef={videoRef}
+              tiltX={tiltX}
             />
 
             <View pointerEvents="box-none" style={styles.viewerOverlay}>
@@ -307,6 +371,7 @@ export const StudioScreen: React.FC = () => {
               }
               videoStatus={videoStatus}
               videoRef={videoRef}
+              tiltX={tiltX}
             />
           </View>
 
@@ -347,11 +412,11 @@ export const StudioScreen: React.FC = () => {
             style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
           >
             <Text style={styles.linkText}>{t('studio_open_in_library')}</Text>
-            <SymbolView
+            <Icon
               name="chevron.right"
               size={12}
               weight="semibold"
-              tintColor={palette.blue}
+              color={palette.blue}
               style={styles.linkGlyph}
             />
           </Pressable>
@@ -363,12 +428,18 @@ export const StudioScreen: React.FC = () => {
         onChange={setTab}
         onCapture={() => setShowCamera(true)}
         captureLabel={t('capture_stereo')}
-        tabs={[
-          { id: 'studio', label: t('tab_studio_short'), symbol: 'cube.transparent' },
-          { id: 'library', label: t('tab_library_short'), symbol: 'square.grid.2x2' },
-        ]}
+        tabs={TAB_ITEMS(t)}
       />
 
+      <GalleryPicker
+        visible={showGallery}
+        onClose={() => setShowGallery(false)}
+        onImported={addPairs}
+        onOpenManual={() => {
+          setShowGallery(false);
+          setShowImporter(true);
+        }}
+      />
       <MediaImporterModal
         visible={showImporter}
         onClose={() => setShowImporter(false)}
@@ -386,6 +457,23 @@ export const StudioScreen: React.FC = () => {
       />
     </View>
   );
+};
+
+/** Kept in one place so both the empty and populated shells stay in step. */
+const TAB_ITEMS = (t: (key: never) => string) => {
+  const translate = t as unknown as (key: string) => string;
+  return [
+    {
+      id: 'studio' as const,
+      label: translate('tab_studio_short'),
+      symbol: 'cube.transparent' as const,
+    },
+    {
+      id: 'library' as const,
+      label: translate('tab_library_short'),
+      symbol: 'square.grid.2x2' as const,
+    },
+  ];
 };
 
 function MetaRow({ label, value }: { label: string; value: string }) {

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useSharedValue } from 'react-native-reanimated';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -57,6 +58,9 @@ export function CaptureReviewSheet({
   const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const styles = useThemedStyles(createStyles);
+
+  // The review preview never uses parallax, but the viewer needs the value.
+  const previewTilt = useSharedValue(0);
 
   const [title, setTitle] = useState('');
   const [mode, setMode] = useState<ViewMode>('wigglegram');
@@ -117,6 +121,7 @@ export function CaptureReviewSheet({
               }}
               onVideoStatus={noop}
               videoRef={noopRef}
+              tiltX={previewTilt}
             />
           </View>
 

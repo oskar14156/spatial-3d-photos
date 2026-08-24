@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { Icon } from './Icon';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type Palette, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -55,9 +55,9 @@ export function IOSSheet({ visible, title, subtitle, children, onClose }: Props)
             }}
             style={({ pressed }) => [styles.close, pressed && styles.pressed]}
           >
-            <SymbolView
+            <Icon
               name="xmark"
-              tintColor={palette.labelSecondary}
+              color={palette.labelSecondary}
               size={13}
               weight="bold"
               style={styles.closeGlyph}

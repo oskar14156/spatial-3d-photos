@@ -12,7 +12,7 @@ export type StereoSourceType =
   | 'imported_sbs'
   | 'imported_dual'
   | 'camera_chacha'
-  | 'demo';
+  | 'built_in';
 
 export type MediaType = 'photo' | 'video';
 export type SpatialEncoding = 'spatial-heic' | 'mv-hevc' | 'sbs' | 'dual';

@@ -19,6 +19,13 @@ type InspectionResult = {
    * from "we were handed a copy that no longer carries the spatial data".
    */
   transcoded: boolean;
+  /**
+   * True when the file *is* Apple spatial media but this platform has no API
+   * to open it. Android has neither a reader for HEIC stereo image groups nor
+   * an MV-HEVC decoder that exposes the second layer, so those files are
+   * recognisable but not importable there.
+   */
+  unsupportedPlatform?: boolean;
 };
 
 type NativeSpatialMedia = {

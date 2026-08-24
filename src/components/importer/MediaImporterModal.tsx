@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
-import { SFSymbol, SymbolView } from 'expo-symbols';
+import type { SFSymbol } from 'expo-symbols';
+import { Icon } from '../common/Icon';
 import type { StereoPair } from '../../types';
 import { DEFAULT_ALIGNMENT } from '../../constants';
 import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
@@ -155,7 +156,12 @@ export const MediaImporterModal: React.FC<Props> = ({
 
       // Separate "you picked an ordinary photo" from "iOS gave us a copy with
       // the spatial data already stripped" — the fixes are completely different.
-      if (inspection.transcoded) {
+      if (inspection.unsupportedPlatform) {
+        Alert.alert(
+          t('import_platform_unsupported'),
+          t('import_platform_unsupported_body')
+        );
+      } else if (inspection.transcoded) {
         Alert.alert(t('import_transcoded_title'), t('import_transcoded_body'));
       } else {
         Alert.alert(t('import_not_spatial_title'), t('import_not_spatial_body'));
@@ -308,17 +314,17 @@ function ImportRow({
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={styles.icon}>
-        <SymbolView name={symbol} size={21} tintColor={palette.blue} style={styles.iconGlyph} />
+        <Icon name={symbol} size={21} color={palette.blue} style={styles.iconGlyph} />
       </View>
       <View style={styles.rowText}>
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.rowDetail}>{detail}</Text>
       </View>
-      <SymbolView
+      <Icon
         name="chevron.right"
         size={12}
         weight="semibold"
-        tintColor={palette.labelQuaternary}
+        color={palette.labelQuaternary}
         style={styles.chevron}
       />
     </Pressable>

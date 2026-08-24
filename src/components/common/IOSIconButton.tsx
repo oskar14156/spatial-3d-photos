@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, ViewStyle } from 'react-native';
-import { SFSymbol, SymbolView } from 'expo-symbols';
+import type { SFSymbol } from 'expo-symbols';
+import { Icon } from './Icon';
 import { useTheme } from '../../theme';
 import { NativeGlass } from './NativeGlass';
 import { hapticFeedback } from '../../utils/haptics';
@@ -49,9 +50,9 @@ export function IOSIconButton({
         tintColor={selected ? 'rgba(10,132,255,0.28)' : undefined}
         style={styles.surface}
       >
-        <SymbolView
+        <Icon
           name={symbol}
-          tintColor={tint}
+          color={tint}
           size={18}
           weight="semibold"
           style={styles.symbol}

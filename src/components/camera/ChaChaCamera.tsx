@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Camera } from 'expo-camera';
-import { SymbolView } from 'expo-symbols';
+import { Icon } from '../common/Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   SpatialCaptureView,
@@ -39,6 +39,7 @@ import {
 import { IOSIconButton } from '../common/IOSIconButton';
 import { NativeGlass } from '../common/NativeGlass';
 import { CaptureGuidanceHUD } from './CaptureGuidanceHUD';
+import { HorizonLine } from './HorizonLine';
 import { CaptureReviewSheet } from './CaptureReviewSheet';
 
 type Props = {
@@ -198,9 +199,9 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 },
         ]}
       >
-        <SymbolView
+        <Icon
           name="camera.fill"
-          tintColor={palette.label}
+          color={palette.label}
           size={36}
           style={styles.permissionIcon}
         />
@@ -292,15 +293,17 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
         />
       </View>
 
+      <HorizonLine rollDegrees={motion.rollDegrees} />
+
       <View
         pointerEvents="none"
         style={[styles.levelWrap, { top: insets.top + (landscape ? 58 : 74) }]}
       >
         <NativeGlass style={styles.levelPill}>
-          <SymbolView
+          <Icon
             name="level.fill"
             size={11}
-            tintColor={level ? palette.green : palette.labelSecondary}
+            color={level ? palette.green : palette.labelSecondary}
             style={styles.levelGlyph}
           />
           <Text style={[styles.levelText, level && styles.levelTextOk]}>
@@ -390,9 +393,9 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
                   onPress={reset}
                   style={({ pressed }) => [styles.sideAction, pressed && styles.pressed]}
                 >
-                  <SymbolView
+                  <Icon
                     name="arrow.counterclockwise"
-                    tintColor={palette.label}
+                    color={palette.label}
                     size={17}
                     style={styles.sideGlyph}
                   />

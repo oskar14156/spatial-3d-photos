@@ -1,7 +1,10 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "podspecPath": "ios/SpatialCapture.podspec",
     "modules": ["SpatialCaptureModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.spatialcapture.SpatialCaptureModule"]
   }
 }
