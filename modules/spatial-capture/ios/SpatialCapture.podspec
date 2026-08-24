@@ -8,5 +8,8 @@ Pod::Spec.new do |s|
   s.platforms = { :ios => '15.1' }
   s.source = { :git => 'https://github.com/oskar14156/spatial-3d-photos.git', :tag => s.version.to_s }
   s.source_files = '**/*.{h,m,mm,swift}'
+  s.frameworks = 'ARKit', 'SceneKit', 'AVFoundation', 'CoreImage',
+                 'CoreVideo', 'ImageIO', 'UIKit'
+
   s.dependency 'ExpoModulesCore'
 end

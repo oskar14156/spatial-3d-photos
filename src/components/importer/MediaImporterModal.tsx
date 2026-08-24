@@ -87,12 +87,14 @@ export const MediaImporterModal: React.FC<Props> = ({
     if (wantOriginal && asset.assetId) {
       try {
         // Reading the original needs Photos access in its own right; the
-        // picker's own permission does not cover it, and without this the
-        // lookup fails silently and we fall back to the stripped copy.
+        // picker's own permission does not cover it.
         const library = await MediaLibrary.requestPermissionsAsync();
         if (library.granted) {
-          const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
-          if (info.localUri) picked.uri = info.localUri;
+          // Copy the original out of the photo library rather than pointing at
+          // it: that path is outside the app sandbox, so opening a video there
+          // fails with a permission error, and any copy iOS offers instead has
+          // already been transcoded past the point of being spatial.
+          picked.uri = await SpatialMedia.exportOriginal(asset.assetId);
         }
       } catch {
         // Keep the picker copy; `inspect` reports it as transcoded and the

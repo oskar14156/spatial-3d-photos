@@ -4,6 +4,7 @@ import CoreImage
 import CoreMedia
 import CoreVideo
 import VideoToolbox
+import Photos
 import ImageIO
 import UniformTypeIdentifiers
 import UIKit
@@ -11,6 +12,69 @@ import UIKit
 public final class SpatialMediaModule: Module {
   public func definition() -> ModuleDefinition {
     Name("SpatialMedia")
+
+    /**
+     Copies a library asset's *original* file into the app's temporary
+     directory and resolves with its `file://` URI.
+
+     Two reasons this has to go through PhotoKit rather than reading the path
+     MediaLibrary reports. The obvious one: that path lives inside the Photos
+     container, outside the app sandbox, so opening a video there fails with
+     "you don't have permission to view it". The important one: only the
+     original resource still carries the stereo payload — anything iOS hands
+     over as a convenience copy has already been transcoded, and transcoding
+     is exactly what strips the HEIC image groups and the second MV-HEVC layer.
+     */
+    AsyncFunction("exportOriginal") { (localIdentifier: String, promise: Promise) in
+      let assets = PHAsset.fetchAssets(
+        withLocalIdentifiers: [localIdentifier],
+        options: nil
+      )
+
+      guard let asset = assets.firstObject else {
+        promise.reject("ERR_SPATIAL_MEDIA", "Asset not found in the photo library.")
+        return
+      }
+
+      guard let resource = Self.originalResource(for: asset) else {
+        promise.reject("ERR_SPATIAL_MEDIA", "Asset has no readable original.")
+        return
+      }
+
+      let ext = (resource.originalFilename as NSString).pathExtension
+      let destination = FileManager.default.temporaryDirectory
+        .appendingPathComponent(
+          "original-\(UUID().uuidString).\(ext.isEmpty ? "dat" : ext)"
+        )
+
+      let options = PHAssetResourceRequestOptions()
+      // iCloud-only assets are common; fetch rather than fail on them.
+      options.isNetworkAccessAllowed = true
+
+      PHAssetResourceManager.default().writeData(
+        for: resource,
+        toFile: destination,
+        options: options
+      ) { error in
+        if let error {
+          promise.reject("ERR_SPATIAL_MEDIA", error.localizedDescription)
+        } else {
+          promise.resolve(destination.absoluteString)
+        }
+      }
+    }
+
+    /// Deletes a copy made by `exportOriginal`, so probing a large library
+    /// does not leave every candidate sitting in temporary storage.
+    AsyncFunction("discardTemporary") { (uri: String) in
+      guard let url = URL(string: uri), url.isFileURL else { return }
+
+      // Only ever delete inside our own temporary directory.
+      let temporary = FileManager.default.temporaryDirectory.standardizedFileURL.path
+      guard url.standardizedFileURL.path.hasPrefix(temporary) else { return }
+
+      try? FileManager.default.removeItem(at: url)
+    }
 
     AsyncFunction("inspect") { (uri: String) async throws -> [String: Any] in
       let url = try Self.fileURL(uri)
@@ -81,6 +145,23 @@ public final class SpatialMediaModule: Module {
         format: format
       ).absoluteString
     }
+  }
+
+  /// The resource holding the untouched original bytes.
+  ///
+  /// `.photo` and `.video` are the originals; the `fullSize*` variants are
+  /// renditions Photos produced after an edit, and an adjusted asset keeps
+  /// both. Preferring the original is what keeps a spatial photo spatial.
+  private static func originalResource(for asset: PHAsset) -> PHAssetResource? {
+    let resources = PHAssetResource.assetResources(for: asset)
+    let preferred: [PHAssetResourceType] = asset.mediaType == .video
+      ? [.video, .fullSizeVideo]
+      : [.photo, .fullSizePhoto]
+
+    for type in preferred {
+      if let match = resources.first(where: { $0.type == type }) { return match }
+    }
+    return resources.first
   }
 
   /// True when the track is H.264, which spatial captures never are.

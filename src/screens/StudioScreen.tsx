@@ -42,6 +42,7 @@ import { SettingsModal } from '../components/settings/SettingsModal';
 import { AlignmentPanel } from '../components/viewer/AlignmentPanel';
 import { StereoViewer, isModeSupported } from '../components/viewer/StereoViewer';
 import { ViewerControls } from '../components/viewer/ViewerControls';
+import { ImmersiveViewer } from '../components/viewer/ImmersiveViewer';
 import type { VideoHandle, VideoStatus } from '../components/viewer/VideoSurface';
 import { LibraryScreen } from './LibraryScreen';
 
@@ -97,6 +98,7 @@ export const StudioScreen: React.FC = () => {
   const [showImporter, setShowImporter] = useState(false);
   const [showExporter, setShowExporter] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [immersive, setImmersive] = useState(false);
 
   const videoRef = useRef<VideoHandle | null>(null);
 
@@ -196,10 +198,28 @@ export const StudioScreen: React.FC = () => {
     );
   }
 
-  if (!current) {
-    return (
-      <View style={styles.root}>
-        {loaded && (
+  const availableModes = current
+    ? MODES.filter((item) => isModeSupported(current, item))
+    : [];
+
+  return (
+    <View style={styles.root}>
+      {tab === 'library' ? (
+        <LibraryScreen
+          projects={pairs}
+          currentPairId={current?.id ?? ''}
+          onOpen={(pair) => {
+            setCurrentId(pair.id);
+            setTab('studio');
+          }}
+          onDelete={removePair}
+          onImport={() => setShowGallery(true)}
+          onCapture={() => setShowCamera(true)}
+        />
+      ) : !current ? (
+        // Only once loading has settled: flashing an empty state over a
+        // library that is about to appear reads as data loss.
+        loaded && (
           <EmptyState
             symbol="cube.transparent"
             title={t('empty_studio_title')}
@@ -218,50 +238,7 @@ export const StudioScreen: React.FC = () => {
               },
             ]}
           />
-        )}
-
-        <TabBar
-          active={tab}
-          onChange={setTab}
-          onCapture={() => setShowCamera(true)}
-          captureLabel={t('capture_stereo')}
-          tabs={TAB_ITEMS(t)}
-        />
-
-        <GalleryPicker
-          visible={showGallery}
-          onClose={() => setShowGallery(false)}
-          onImported={addPairs}
-          onOpenManual={() => {
-            setShowGallery(false);
-            setShowImporter(true);
-          }}
-        />
-        <MediaImporterModal
-          visible={showImporter}
-          onClose={() => setShowImporter(false)}
-          onImportComplete={addPair}
-        />
-      </View>
-    );
-  }
-
-  const availableModes = MODES.filter((item) => isModeSupported(current, item));
-
-  return (
-    <View style={styles.root}>
-      {tab === 'library' ? (
-        <LibraryScreen
-          projects={pairs}
-          currentPairId={current.id}
-          onOpen={(pair) => {
-            setCurrentId(pair.id);
-            setTab('studio');
-          }}
-          onDelete={removePair}
-          onImport={() => setShowGallery(true)}
-          onCapture={() => setShowCamera(true)}
-        />
+        )
       ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -372,6 +349,7 @@ export const StudioScreen: React.FC = () => {
               videoStatus={videoStatus}
               videoRef={videoRef}
               tiltX={tiltX}
+              onEnterFullscreen={() => setImmersive(true)}
             />
           </View>
 
@@ -445,16 +423,27 @@ export const StudioScreen: React.FC = () => {
         onClose={() => setShowImporter(false)}
         onImportComplete={addPair}
       />
-      <ExportModal
-        visible={showExporter}
-        stereoPair={current}
-        anaglyphMode={options.anaglyphMode}
-        onClose={() => setShowExporter(false)}
-      />
+      {current && (
+        <ExportModal
+          visible={showExporter}
+          stereoPair={current}
+          anaglyphMode={options.anaglyphMode}
+          onClose={() => setShowExporter(false)}
+        />
+      )}
       <SettingsModal
         visible={showSettings}
         onClose={() => setShowSettings(false)}
       />
+      {current && (
+        <ImmersiveViewer
+          visible={immersive}
+          pair={current}
+          mode={mode}
+          options={options}
+          onClose={() => setImmersive(false)}
+        />
+      )}
     </View>
   );
 };

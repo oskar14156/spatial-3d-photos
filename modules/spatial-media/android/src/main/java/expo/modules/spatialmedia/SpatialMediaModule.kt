@@ -41,6 +41,45 @@ class SpatialMediaModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("SpatialMedia")
 
+    /**
+     * Copies a library item into the app cache and resolves with its file URI.
+     *
+     * Mirrors the iOS entry point so the shared JavaScript has no platform
+     * branch. Here the reason is scoped storage rather than the Photos
+     * sandbox: a `content://` URI is readable through the resolver but not by
+     * anything that wants a plain path.
+     */
+    AsyncFunction("exportOriginal") { identifier: String ->
+      val resolver = appContext.reactContext?.contentResolver
+        ?: throw SpatialMediaException("No content resolver available.")
+
+      val source = android.net.Uri.parse(identifier)
+      val extension = source.lastPathSegment
+        ?.substringAfterLast('.', "")
+        ?.takeIf { it.isNotEmpty() && it.length <= 5 }
+        ?: "dat"
+
+      val destination = File(
+        appContext.cacheDirectory,
+        "original-${UUID.randomUUID()}.$extension"
+      )
+
+      resolver.openInputStream(source).use { input ->
+        if (input == null) throw SpatialMediaException("Could not open $identifier.")
+        FileOutputStream(destination).use { output -> input.copyTo(output) }
+      }
+
+      "file://${destination.absolutePath}"
+    }
+
+    /** Deletes a copy made by `exportOriginal`. */
+    AsyncFunction("discardTemporary") { uri: String ->
+      val path = uri.removePrefix("file://")
+      val cache = appContext.cacheDirectory?.absolutePath ?: return@AsyncFunction
+      // Only ever delete inside our own cache directory.
+      if (path.startsWith(cache)) File(path).delete()
+    }
+
     AsyncFunction("inspect") { uri: String ->
       val file = resolve(uri)
       val name = file.name.lowercase()

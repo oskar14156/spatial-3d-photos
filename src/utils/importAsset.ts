@@ -2,7 +2,7 @@ import * as MediaLibrary from 'expo-media-library';
 import type { StereoPair } from '../types';
 import { DEFAULT_ALIGNMENT } from '../constants';
 import SpatialMedia from '../../modules/spatial-media';
-import type { ProbeResult } from './useSpatialProbe';
+import { originalIdentifier, type ProbeResult } from './useSpatialProbe';
 import { splitSideBySideImage } from './stereoImageProcessor';
 
 export type ImportOutcome = {
@@ -30,12 +30,12 @@ export async function importAsset(
   ) => string;
 
   try {
-    // The probe already resolved the original; re-resolve only if it did not.
-    let uri = probe?.originalUri;
-    if (!uri) {
-      const info = await MediaLibrary.getAssetInfoAsync(asset.id);
-      uri = info.localUri ?? asset.uri;
-    }
+    // The probe keeps its copy when the asset turned out to be spatial; make
+    // a fresh one otherwise. Either way we work on a file we are allowed to
+    // read, never on the library path itself.
+    const uri =
+      probe?.originalUri ??
+      (await SpatialMedia.exportOriginal(originalIdentifier(asset)));
 
     const inspection = await SpatialMedia.inspect(uri);
 

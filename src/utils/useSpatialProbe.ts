@@ -1,13 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import SpatialMedia from '../../modules/spatial-media';
+
+/**
+ * The platform's own handle for the asset's original bytes.
+ *
+ * iOS wants the PHAsset local identifier; Android wants the MediaStore
+ * content URI. Neither is the path MediaLibrary reports, and on iOS that path
+ * is the whole problem: it points inside the Photos container, so opening a
+ * video there fails with a permission error.
+ */
+export function originalIdentifier(asset: MediaLibrary.Asset): string {
+  return Platform.OS === 'ios' ? asset.id : asset.uri;
+}
 
 export type ProbeState = 'pending' | 'spatial' | 'plain' | 'failed';
 
 export type ProbeResult = {
   state: ProbeState;
-  /** Original file URI, resolved while probing; reused by the importer. */
+  /** Readable copy of the original, resolved while probing; reused on import. */
   originalUri?: string;
+  /** Recognisably Apple spatial media that this platform cannot open. */
+  unsupported?: boolean;
   kind?: 'spatial-photo' | 'spatial-video';
 };
 
@@ -75,14 +90,23 @@ export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
       inFlight.current += 1;
 
       (async () => {
+        let copy: string | undefined;
         try {
-          const info = await MediaLibrary.getAssetInfoAsync(asset.id);
-          const uri = info.localUri ?? asset.uri;
-          const inspection = await SpatialMedia.inspect(uri);
+          copy = await SpatialMedia.exportOriginal(originalIdentifier(asset));
+          const inspection = await SpatialMedia.inspect(copy);
+          const spatial = inspection.spatial;
+
+          // Hold on to the copy only if it is going to be imported; otherwise
+          // probing a large library would leave every candidate behind.
+          if (!spatial) {
+            void SpatialMedia.discardTemporary(copy);
+            copy = undefined;
+          }
 
           publish(id, {
-            state: inspection.spatial ? 'spatial' : 'plain',
-            originalUri: uri,
+            state: spatial ? 'spatial' : 'plain',
+            originalUri: copy,
+            unsupported: inspection.unsupportedPlatform === true,
             kind:
               inspection.kind === 'spatial-photo' ||
               inspection.kind === 'spatial-video'
@@ -90,6 +114,7 @@ export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
                 : undefined,
           });
         } catch {
+          if (copy) void SpatialMedia.discardTemporary(copy);
           // A probe failure is not an import failure; treat it as ordinary
           // media so the asset stays selectable.
           publish(id, { state: 'failed' });

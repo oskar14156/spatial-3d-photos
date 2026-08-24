@@ -29,6 +29,17 @@ type InspectionResult = {
 };
 
 type NativeSpatialMedia = {
+  /**
+   * Copies a photo-library item's original into temporary storage and returns
+   * a readable `file://` URI.
+   *
+   * Takes the platform's own asset identifier — a PHAsset local identifier on
+   * iOS, a MediaStore content URI on Android — which is what
+   * `MediaLibrary.Asset.id` and `.uri` already hold.
+   */
+  exportOriginal(identifier: string): Promise<string>;
+  /** Removes a copy made by `exportOriginal`. */
+  discardTemporary(uri: string): Promise<void>;
   inspect(uri: string): Promise<InspectionResult>;
   splitSpatialPhoto(uri: string): Promise<SplitResult>;
   splitSpatialVideo(uri: string): Promise<SplitResult>;

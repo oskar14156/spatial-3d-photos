@@ -20,6 +20,7 @@ type Props = {
   videoRef: React.RefObject<VideoHandle | null>;
   /** Live gyro position, shared with the parallax surface. */
   tiltX: SharedValue<number>;
+  onEnterFullscreen: () => void;
 };
 
 const WIGGLE_RATES = [6, 10, 15, 20];
@@ -37,6 +38,7 @@ export function ViewerControls({
   videoStatus,
   videoRef,
   tiltX,
+  onEnterFullscreen,
 }: Props) {
   const { t } = useTranslation();
   const { palette } = useTheme();
@@ -131,6 +133,30 @@ export function ViewerControls({
               <Icon name="checkmark" size={13} weight="semibold" color={palette.blue} />
             )}
           </Pressable>
+
+          {options.vrMode && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                hapticFeedback.medium();
+                onEnterFullscreen();
+              }}
+              style={({ pressed }) => [
+                styles.fullscreenRow,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Icon
+                name="arrow.up.left.and.arrow.down.right"
+                size={16}
+                weight="semibold"
+                color={palette.onAccent}
+              />
+              <Text style={styles.fullscreenLabel}>
+                {t('viewer_enter_fullscreen')}
+              </Text>
+            </Pressable>
+          )}
 
           {options.vrMode && (
             <Slider
@@ -254,6 +280,21 @@ function formatTime(seconds: number) {
 
 const createStyles = (palette: Palette) =>
   StyleSheet.create({
+    fullscreenRow: {
+      minHeight: 46,
+      marginTop: 10,
+      borderRadius: radius.control,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: palette.blue,
+    },
+    fullscreenLabel: {
+      ...type.callout,
+      fontWeight: '600',
+      color: palette.onAccent,
+    },
   row: {
     minHeight: 44,
     flexDirection: 'row',
