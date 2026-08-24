@@ -50,18 +50,24 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug -PbundleDebugJs=true --no-daemon --stacktrace
+          ./gradlew assembleDebug -PbundleDebugJs=true -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+
+      - name: Upload standalone debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: spatial3d-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
 
-      - name: Upload debug and release APKs
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: spatial3d-android-apks
-          path: |
-            android/app/build/outputs/apk/debug/app-debug.apk
-            android/app/build/outputs/apk/release/app-release.apk
+          name: spatial3d-android-release
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14

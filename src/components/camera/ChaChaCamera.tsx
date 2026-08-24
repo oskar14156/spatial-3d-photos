@@ -80,6 +80,9 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
   const isAndroid = Platform.OS === 'android';
+  const landscapeDockWidth = landscape
+    ? Math.min(400, Math.max(280, width * 0.44))
+    : 0;
 
   const captureRef = useRef<SpatialCaptureViewRef | null>(null);
   const androidCameraRef = useRef<CameraView | null>(null);
@@ -195,28 +198,56 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   /* Auto shutter                                                           */
   /* ---------------------------------------------------------------------- */
 
-  const wasReady = useRef(false);
+  const autoCaptureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelAutoCapture = useCallback(() => {
+    if (autoCaptureTimer.current !== null) {
+      clearTimeout(autoCaptureTimer.current);
+      autoCaptureTimer.current = null;
+    }
+  }, []);
 
   const manualCapture = useCallback(() => {
-    // A deliberate shutter press must not be followed by a second automatic
-    // shot just because the current position already happens to be ready.
-    wasReady.current = guidance.canShoot;
+    // A deliberate shutter press always wins over a pending automatic shot.
+    cancelAutoCapture();
     void capture();
-  }, [capture, guidance.canShoot]);
+  }, [cancelAutoCapture, capture]);
 
   useEffect(() => {
-    if (step !== 2) {
-      wasReady.current = false;
+    cancelAutoCapture();
+
+    if (
+      step !== 2 ||
+      !autoShutter ||
+      !guidance.canShoot ||
+      busy ||
+      rightUri ||
+      reviewing
+    ) {
       return;
     }
 
-    const ready = guidance.canShoot;
-    if (ready && !wasReady.current) {
+    // Keep the phone inside the target window briefly. This makes AUTO
+    // visible and reliable without firing on a single noisy ARKit frame.
+    autoCaptureTimer.current = setTimeout(() => {
+      autoCaptureTimer.current = null;
       hapticFeedback.success();
-      if (autoShutter && !busy) capture();
-    }
-    wasReady.current = ready;
-  }, [autoShutter, busy, capture, guidance.canShoot, step]);
+      void capture();
+    }, 350);
+
+    return cancelAutoCapture;
+  }, [
+    autoShutter,
+    busy,
+    cancelAutoCapture,
+    capture,
+    guidance.canShoot,
+    reviewing,
+    rightUri,
+    step,
+  ]);
+
+  useEffect(() => cancelAutoCapture, [cancelAutoCapture]);
 
   /* ---------------------------------------------------------------------- */
   /* Permission gate                                                        */
@@ -367,9 +398,8 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           accessibilityState={{ selected: autoShutter }}
           onPress={() => {
             hapticFeedback.light();
-            // Allow enabling auto capture while the phone is already in the
-            // target position; the edge-trigger will fire on the next effect.
-            wasReady.current = false;
+            // Enabling while already on the mark starts the same stable timer
+            // as moving into the target window.
             setAutoShutter((value) => !value);
           }}
           style={({ pressed }) => [styles.autoButton, pressed && styles.pressed]}
@@ -424,7 +454,10 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           style={[
             styles.guidanceWrap,
             landscape ? styles.guidanceWrapLandscape : null,
-            { bottom: insets.bottom + (landscape ? 18 : 184) },
+            {
+              bottom: insets.bottom + (landscape ? 18 : 184),
+              right: landscape ? landscapeDockWidth + 28 : 16,
+            },
           ]}
         >
           <CaptureGuidanceHUD
@@ -442,6 +475,7 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           styles.dockWrap,
           { bottom: insets.bottom + 10 },
           landscape && styles.dockWrapLandscape,
+          landscape && { width: landscapeDockWidth },
         ]}
       >
         <NativeGlass style={styles.dock}>
@@ -811,12 +845,11 @@ const createStyles = (palette: Palette) => StyleSheet.create({
     alignItems: 'center',
   },
   guidanceWrapLandscape: {
-    right: 430,
     alignItems: 'stretch',
   },
 
   dockWrap: { position: 'absolute', left: 12, right: 12, alignItems: 'center' },
-  dockWrapLandscape: { left: undefined, right: 14, width: 400 },
+  dockWrapLandscape: { left: undefined, right: 14 },
   dock: {
     width: '100%',
     maxWidth: 620,
