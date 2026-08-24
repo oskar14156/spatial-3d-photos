@@ -118,17 +118,11 @@ class SpatialMediaModule : Module() {
     }
 
     AsyncFunction("splitSpatialPhoto") { _: String ->
-      throw SpatialMediaException(
-        "Apple spatial photos cannot be opened on Android: the stereo pairing " +
-          "lives in HEIC image groups that no public Android API exposes."
-      )
+      unsupportedSpatialPhoto()
     }
 
     AsyncFunction("splitSpatialVideo") { _: String ->
-      throw SpatialMediaException(
-        "MV-HEVC spatial video cannot be split on Android: MediaCodec decodes " +
-          "only the base layer."
-      )
+      unsupportedSpatialVideo()
     }
 
     AsyncFunction("exportStereoPhoto") { leftUri: String, rightUri: String, format: String ->
@@ -156,6 +150,22 @@ class SpatialMediaModule : Module() {
   }
 
   // MARK: - Helpers
+
+  // Keep these helpers Unit-returning so Expo's Kotlin DSL does not infer
+  // Nothing for an async function whose only branch throws.
+  private fun unsupportedSpatialPhoto(): Unit {
+    throw SpatialMediaException(
+      "Apple spatial photos cannot be opened on Android: the stereo pairing " +
+        "lives in HEIC image groups that no public Android API exposes."
+    )
+  }
+
+  private fun unsupportedSpatialVideo(): Unit {
+    throw SpatialMediaException(
+      "MV-HEVC spatial video cannot be split on Android: MediaCodec decodes " +
+        "only the base layer."
+    )
+  }
 
   private fun resolve(uri: String): File {
     val path = uri.removePrefix("file://")

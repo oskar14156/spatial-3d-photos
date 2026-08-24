@@ -50,7 +50,7 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   override func layoutSubviews() {
     super.layoutSubviews()
     sceneView.frame = bounds
-    interfaceOrientation = window?.windowScene?.interfaceOrientation ?? .portrait
+    interfaceOrientation = window?.windowScene?.interfaceOrientation ?? interfaceOrientation
   }
 
   deinit {
@@ -279,11 +279,10 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     let axes = screenAxesInCameraSpace
     let localPoint = simd_make_float3(local)
     let raw = simd_float3(
-      // The capture contract defines positive lateral movement as movement
-      // to the photographer's right. ARKit's portrait camera-space axis is
-      // the opposite sign, so invert it here before it reaches the guidance
-      // HUD (otherwise moving right made "remaining" increase).
-      -simd_dot(localPoint, axes.right),
+      // `axes.right` is already the screen-right axis for the current
+      // interface orientation. Applying another global sign flip made the
+      // guidance reverse direction in portrait and landscape.
+      simd_dot(localPoint, axes.right),
       simd_dot(localPoint, axes.up),
       -local.z
     )

@@ -217,6 +217,10 @@ export const TRANSLATIONS = {
     lidar_confidence_high: 'HOHE GENAUIGKEIT',
     subject_label: 'Motiv',
     stereo_base_label: 'STEREOBASIS',
+    manual_override: 'Manuell',
+    manual_distance_label: 'Motivabstand manuell',
+    manual_distance_hint: 'Meter · für weite Distanzen',
+    manual_distance_placeholder: 'z. B. 1500',
 
     // Import
     import_sheet_subtitle: 'Wähle das tatsächliche Quellformat',
@@ -535,6 +539,10 @@ export const TRANSLATIONS = {
     lidar_confidence_high: 'HIGH CONFIDENCE',
     subject_label: 'subject',
     stereo_base_label: 'STEREO BASE',
+    manual_override: 'Manual',
+    manual_distance_label: 'Manual subject distance',
+    manual_distance_hint: 'Meters · for far distances',
+    manual_distance_placeholder: 'e.g. 1500',
 
     // Import
     import_sheet_subtitle: 'Choose the actual source format',

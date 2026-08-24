@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -91,10 +92,15 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   const [trackingState, setTrackingState] = useState<TrackingState>('initializing');
   const [motion, setMotion] = useState<MotionEvent>(IDLE_MOTION);
   const [autoShutter, setAutoShutter] = useState(true);
+  const [manualDistance, setManualDistance] = useState(false);
+  const [manualDistanceText, setManualDistanceText] = useState('2');
 
+  const selectedDistance = manualDistance
+    ? parseDistanceInput(manualDistanceText) ?? distanceMeters
+    : distanceMeters;
   const recommendation = useMemo(
-    () => recommendStereoBaseline(distanceMeters),
-    [distanceMeters]
+    () => recommendStereoBaseline(selectedDistance),
+    [selectedDistance]
   );
   const targetBaseline = recommendation.baselineMeters;
 
@@ -246,7 +252,9 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           // Only follow LiDAR while framing the first shot; locking the
           // distance afterwards keeps the target baseline from moving under
           // the photographer as they walk.
-          if (step === 1) setDistanceMeters(event.nativeEvent.meters);
+          if (step === 1 && !manualDistance && Number.isFinite(event.nativeEvent.meters)) {
+            setDistanceMeters(event.nativeEvent.meters);
+          }
           setDepthConfidence(event.nativeEvent.confidence);
         }}
       />
@@ -365,6 +373,60 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
             </View>
           </View>
 
+          {step === 1 && (
+            <View style={styles.manualDistanceRow}>
+              <View style={styles.manualDistanceCopy}>
+                <Text style={styles.manualDistanceLabel}>
+                  {t('manual_distance_label')}
+                </Text>
+                <Text style={styles.manualDistanceHint} numberOfLines={1}>
+                  {t('manual_distance_hint')}
+                </Text>
+              </View>
+              {manualDistance ? (
+                <TextInput
+                  accessibilityLabel={t('manual_distance_label')}
+                  keyboardType="decimal-pad"
+                  value={manualDistanceText}
+                  onChangeText={(value) => {
+                    setManualDistanceText(value);
+                    const parsed = parseDistanceInput(value);
+                    if (parsed !== undefined) setDistanceMeters(parsed);
+                  }}
+                  placeholder={t('manual_distance_placeholder')}
+                  placeholderTextColor={palette.labelTertiary}
+                  selectTextOnFocus
+                  style={styles.manualDistanceInput}
+                />
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: manualDistance }}
+                onPress={() => {
+                  hapticFeedback.selection();
+                  if (!manualDistance) {
+                    setManualDistanceText(formatManualDistance(distanceMeters));
+                  }
+                  setManualDistance((value) => !value);
+                }}
+                style={({ pressed }) => [
+                  styles.manualDistanceButton,
+                  manualDistance && styles.manualDistanceButtonSelected,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.manualDistanceButtonText,
+                    manualDistance && styles.manualDistanceButtonTextSelected,
+                  ]}
+                >
+                  {t('manual_override')}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
           {step === 1 && !landscape && (
             <ScrollView
               horizontal
@@ -379,6 +441,8 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
                   selected={isNear(distanceMeters, preset.defaultSubjectDistanceMeters)}
                   onPress={() => {
                     hapticFeedback.selection();
+                    setManualDistance(true);
+                    setManualDistanceText(formatManualDistance(preset.defaultSubjectDistanceMeters));
                     setDistanceMeters(preset.defaultSubjectDistanceMeters);
                   }}
                 />
@@ -485,6 +549,17 @@ function PresetChip({
 /** Presets are matched loosely so a LiDAR reading can still light one up. */
 function isNear(value: number, target: number) {
   return Math.abs(value - target) <= Math.max(0.02, target * 0.05);
+}
+
+function parseDistanceInput(value: string): number | undefined {
+  const parsed = Number(value.trim().replace(',', '.'));
+  return Number.isFinite(parsed) && parsed >= 0.05 && parsed <= 100_000
+    ? parsed
+    : undefined;
+}
+
+function formatManualDistance(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
 const createStyles = (palette: Palette) => StyleSheet.create({
@@ -600,6 +675,37 @@ const createStyles = (palette: Palette) => StyleSheet.create({
     padding: 12,
   },
   metricsRow: { flexDirection: 'row', paddingHorizontal: 4, paddingVertical: 2 },
+  manualDistanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingTop: 10,
+  },
+  manualDistanceCopy: { flex: 1, minWidth: 0 },
+  manualDistanceLabel: { ...type.caption, color: palette.label },
+  manualDistanceHint: { ...type.caption, fontSize: 10, color: palette.labelTertiary },
+  manualDistanceInput: {
+    width: 78,
+    height: 34,
+    borderRadius: radius.control,
+    paddingHorizontal: 9,
+    paddingVertical: 0,
+    textAlign: 'right',
+    color: palette.label,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    fontVariant: ['tabular-nums'],
+  },
+  manualDistanceButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    borderRadius: radius.control,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  manualDistanceButtonSelected: { backgroundColor: palette.label },
+  manualDistanceButtonText: { ...type.caption, color: palette.labelSecondary, fontWeight: '600' },
+  manualDistanceButtonTextSelected: { color: palette.canvas },
   metric: { flex: 1 },
   metricRight: { alignItems: 'flex-end' },
   metricLabel: { ...type.eyebrow, fontSize: 9, color: palette.labelTertiary },

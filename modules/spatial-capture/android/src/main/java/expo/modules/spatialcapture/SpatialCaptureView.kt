@@ -1,7 +1,10 @@
 package expo.modules.spatialcapture
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix as BitmapMatrix
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.opengl.GLES20
@@ -81,7 +84,7 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
   private fun start() {
     val created = runCatching { Session(context) }.getOrNull()
     if (created == null) {
-      onAvailabilityChange(mapOf("worldTracking" to false, "depth" to false))
+      onAvailabilityChange(mapOf("worldTracking" to false, "lidar" to false))
       return
     }
 
@@ -93,11 +96,13 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     created.configure(config)
 
     session = created
-    onAvailabilityChange(mapOf("worldTracking" to true, "depth" to depthSupported))
+    // Match the cross-platform event contract. Android's depth API is the
+    // equivalent fallback to LiDAR for the shared camera UI.
+    onAvailabilityChange(mapOf("worldTracking" to true, "lidar" to depthSupported))
 
     runCatching { created.resume() }.onFailure { error ->
       if (error is CameraNotAvailableException) {
-        onAvailabilityChange(mapOf("worldTracking" to false, "depth" to false))
+        onAvailabilityChange(mapOf("worldTracking" to false, "lidar" to false))
       }
     }
     surface.onResume()
@@ -248,7 +253,12 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
       val millimetres = buffer.get(index).toInt() and 0xFFFF
       if (millimetres <= 0) return
 
-      onDistanceChange(mapOf("distance" to millimetres / 1000.0))
+      onDistanceChange(
+        mapOf(
+          "meters" to millimetres / 1000.0,
+          "confidence" to "medium"
+        )
+      )
     } finally {
       image.close()
     }
@@ -299,6 +309,14 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
       .defaultDisplay.rotation
 
+  /** Rear-camera sensor orientation (90°) corrected for the display rotation. */
+  private fun captureRotationDegrees(): Float = when (displayRotation()) {
+    Surface.ROTATION_90 -> 0f
+    Surface.ROTATION_180 -> 270f
+    Surface.ROTATION_270 -> 180f
+    else -> 90f
+  }
+
   // MARK: - Stills
 
   private fun fulfilCapture(frame: Frame) {
@@ -316,8 +334,33 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
       YuvImage(yuv420ToNv21(image), ImageFormat.NV21, image.width, image.height, null)
         .compressToJpeg(Rect(0, 0, image.width, image.height), 95, jpeg)
 
+      // acquireCameraImage is sensor-oriented. Rotate the still into the
+      // current display orientation so portrait and landscape captures have
+      // the same upright contract as the iOS implementation.
+      val decoded = BitmapFactory.decodeByteArray(jpeg.toByteArray(), 0, jpeg.size())
+        ?: throw IllegalStateException("Could not decode camera frame.")
+      val rotation = captureRotationDegrees()
+      val oriented = if (rotation == 0f) {
+        decoded
+      } else {
+        Bitmap.createBitmap(
+          decoded,
+          0,
+          0,
+          decoded.width,
+          decoded.height,
+          BitmapMatrix().apply { postRotate(rotation) },
+          true
+        ).also { if (it !== decoded) decoded.recycle() }
+      }
+
       val file = File(appContext?.cacheDirectory, "stereo-${UUID.randomUUID()}.jpg")
-      FileOutputStream(file).use { it.write(jpeg.toByteArray()) }
+      FileOutputStream(file).use { output ->
+        if (!oriented.compress(Bitmap.CompressFormat.JPEG, 95, output)) {
+          throw IllegalStateException("Could not encode camera frame.")
+        }
+      }
+      oriented.recycle()
       callback(Result.success("file://${file.absolutePath}"))
     } catch (error: Exception) {
       callback(Result.failure(error))
