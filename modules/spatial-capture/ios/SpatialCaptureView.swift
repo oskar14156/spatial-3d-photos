@@ -279,7 +279,11 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     let axes = screenAxesInCameraSpace
     let localPoint = simd_make_float3(local)
     let raw = simd_float3(
-      simd_dot(localPoint, axes.right),
+      // The capture contract defines positive lateral movement as movement
+      // to the photographer's right. ARKit's portrait camera-space axis is
+      // the opposite sign, so invert it here before it reaches the guidance
+      // HUD (otherwise moving right made "remaining" increase).
+      -simd_dot(localPoint, axes.right),
       simd_dot(localPoint, axes.up),
       -local.z
     )

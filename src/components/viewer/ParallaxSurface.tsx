@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { DeviceMotion } from 'expo-sensors';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -21,9 +21,10 @@ type Props = {
   tiltX: SharedValue<number>;
 };
 
-/** Device roll, in radians, that maps to a full swing to one eye. */
-const ROLL_RANGE = 0.45;
-const PITCH_RANGE = 0.45;
+/** Device roll/pitch, in radians, that maps to a full swing to one eye. */
+const ROLL_RANGE = 0.8;
+const PITCH_RANGE = 0.8;
+const SENSOR_DEADZONE = 0.025;
 
 /**
  * Look-around view: tilting the phone (or dragging) cross-fades between the
@@ -42,8 +43,17 @@ export function ParallaxSurface({ pair, tiltX }: Props) {
   const dragging = useSharedValue(false);
   const dragStartX = useSharedValue(0);
   const dragStartY = useSharedValue(0);
+  const sensorBaseline = useRef<{ beta: number; gamma: number } | null>(null);
+  const previousRotation = useRef<{ beta: number; gamma: number } | null>(null);
 
   useEffect(() => {
+    // A new pair starts from neutral. Keeping the old shared value here made
+    // switching photos look like a sudden jump in the scene.
+    tiltX.value = 0;
+    tiltY.value = 0;
+    sensorBaseline.current = null;
+    previousRotation.current = null;
+
     let subscription: { remove: () => void } | undefined;
     let cancelled = false;
 
@@ -52,10 +62,37 @@ export function ParallaxSurface({ pair, tiltX }: Props) {
       DeviceMotion.setUpdateInterval(33);
       subscription = DeviceMotion.addListener(({ rotation }) => {
         if (!rotation || dragging.value) return;
+
+        if (!Number.isFinite(rotation.beta) || !Number.isFinite(rotation.gamma)) {
+          return;
+        }
+
+        // Euler angles wrap at ±π. Unwrapping before subtracting the neutral
+        // sample prevents the scene from jumping when the phone is level.
+        const previous = previousRotation.current;
+        const beta = previous
+          ? unwrapAngle(rotation.beta, previous.beta)
+          : rotation.beta;
+        const gamma = previous
+          ? unwrapAngle(rotation.gamma, previous.gamma)
+          : rotation.gamma;
+        previousRotation.current = { beta, gamma };
+
+        if (!sensorBaseline.current) {
+          sensorBaseline.current = { beta, gamma };
+          return;
+        }
+
         // Smooth in the shared value itself; this callback runs on the JS
         // thread but only ever assigns, never re-renders.
-        const nextX = clamp(rotation.gamma / ROLL_RANGE, -1, 1);
-        const nextY = clamp((rotation.beta + 0.6) / PITCH_RANGE, -1, 1);
+        const nextX = normaliseTilt(
+          gamma - sensorBaseline.current.gamma,
+          ROLL_RANGE
+        );
+        const nextY = normaliseTilt(
+          beta - sensorBaseline.current.beta,
+          PITCH_RANGE
+        );
         tiltX.value = tiltX.value * 0.75 + nextX * 0.25;
         tiltY.value = tiltY.value * 0.75 + nextY * 0.25;
       });
@@ -91,10 +128,10 @@ export function ParallaxSurface({ pair, tiltX }: Props) {
   const sceneStyle = useAnimatedStyle(() => ({
     transform: [
       { perspective: 900 },
-      { translateX: tiltX.value * 14 },
-      { translateY: tiltY.value * 8 },
-      { rotateY: `${tiltX.value * 9}deg` },
-      { rotateX: `${-tiltY.value * 6}deg` },
+      { translateX: tiltX.value * 7 },
+      { translateY: tiltY.value * 4 },
+      { rotateY: `${tiltX.value * 4}deg` },
+      { rotateX: `${-tiltY.value * 3}deg` },
     ],
   }));
 
@@ -125,6 +162,20 @@ export function ParallaxSurface({ pair, tiltX }: Props) {
 function clamp(value: number, min: number, max: number) {
   'worklet';
   return Math.min(max, Math.max(min, value));
+}
+
+function unwrapAngle(value: number, previous: number) {
+  const delta = value - previous;
+  if (delta > Math.PI) return value - Math.PI * 2;
+  if (delta < -Math.PI) return value + Math.PI * 2;
+  return value;
+}
+
+function normaliseTilt(delta: number, range: number) {
+  const magnitude = Math.abs(delta);
+  if (magnitude <= SENSOR_DEADZONE) return 0;
+  const scaled = (magnitude - SENSOR_DEADZONE) / (range - SENSOR_DEADZONE);
+  return clamp(Math.sign(delta) * scaled, -1, 1);
 }
 
 const styles = StyleSheet.create({

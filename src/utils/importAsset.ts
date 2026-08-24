@@ -37,7 +37,16 @@ export async function importAsset(
       probe?.originalUri ??
       (await SpatialMedia.exportOriginal(originalIdentifier(asset)));
 
-    const inspection = await SpatialMedia.inspect(uri);
+    // Gallery probing already decoded the opening frames. Reusing its result
+    // avoids probing a spatial video a second time before the expensive split.
+    const inspection =
+      probe?.state === 'spatial' && probe.kind
+        ? {
+            kind: probe.kind,
+            spatial: true,
+            transcoded: false,
+          }
+        : await SpatialMedia.inspect(uri);
 
     if (inspection.kind === 'spatial-photo') {
       const result = await SpatialMedia.splitSpatialPhoto(uri);

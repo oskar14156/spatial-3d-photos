@@ -21,6 +21,7 @@ import { hapticFeedback } from '../../utils/haptics';
 import { useSpatialProbe, type ProbeResult } from '../../utils/useSpatialProbe';
 import { importAsset, type ImportOutcome } from '../../utils/importAsset';
 import { Segmented } from '../common/Segmented';
+import { IndeterminateProgress } from '../common/IndeterminateProgress';
 
 type Props = {
   visible: boolean;
@@ -63,6 +64,10 @@ export const GalleryPicker: React.FC<Props> = ({
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
 
   const { results, scanning } = useSpatialProbe(assets);
 
@@ -149,18 +154,23 @@ export const GalleryPicker: React.FC<Props> = ({
       const imported: StereoPair[] = [];
       const failures: ImportOutcome[] = [];
 
-      for (let index = 0; index < ids.length; index += 1) {
-        const asset = byId.get(ids[index]);
-        if (!asset) continue;
+      try {
+        for (let index = 0; index < ids.length; index += 1) {
+          const asset = byId.get(ids[index]);
+          if (!asset) continue;
 
-        setImporting(t('import_progress', { current: index + 1, total: ids.length }));
+          setImportProgress({ current: index + 1, total: ids.length });
+          setImporting(t('import_progress', { current: index + 1, total: ids.length }));
 
-        const outcome = await importAsset(asset, results[asset.id], t);
-        if (outcome.pair) imported.push(outcome.pair);
-        else failures.push(outcome);
+          const outcome = await importAsset(asset, results[asset.id], t);
+          if (outcome.pair) imported.push(outcome.pair);
+          else failures.push(outcome);
+        }
+      } finally {
+        setImporting(null);
+        setImportProgress(null);
       }
 
-      setImporting(null);
       setSelected(new Set());
 
       if (imported.length) {
@@ -282,6 +292,26 @@ export const GalleryPicker: React.FC<Props> = ({
         )}
 
         <View style={[styles.dock, { paddingBottom: insets.bottom + spacing.md }]}>
+          {importing && importProgress && (
+            <View style={styles.importProgressPanel}>
+              <View style={styles.importProgressHeader}>
+                <ActivityIndicator size="small" color={palette.blue} />
+                <Text style={styles.importProgressText} numberOfLines={1}>
+                  {importing}
+                </Text>
+              </View>
+              <IndeterminateProgress color={palette.blue} />
+              <View style={styles.importCountTrack}>
+                <View
+                  style={[
+                    styles.importCountFill,
+                    { width: `${(importProgress.current / importProgress.total) * 100}%` },
+                  ]}
+                />
+              </View>
+            </View>
+          )}
+
           {spatialIds.length > 0 && (
             <Pressable
               accessibilityRole="button"
@@ -481,6 +511,33 @@ const createStyles = (palette: Palette) =>
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: palette.separator,
       backgroundColor: palette.canvas,
+    },
+    importProgressPanel: {
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.group,
+      backgroundColor: palette.fill,
+    },
+    importProgressHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    importProgressText: {
+      ...type.footnote,
+      flex: 1,
+      color: palette.label,
+    },
+    importCountTrack: {
+      height: 3,
+      borderRadius: 2,
+      overflow: 'hidden',
+      backgroundColor: palette.fillSubtle,
+    },
+    importCountFill: {
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: palette.blue,
     },
     primaryButton: {
       minHeight: 50,

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -42,6 +43,7 @@ import { SettingsModal } from '../components/settings/SettingsModal';
 import { AlignmentPanel } from '../components/viewer/AlignmentPanel';
 import { StereoViewer, isModeSupported } from '../components/viewer/StereoViewer';
 import { ViewerControls } from '../components/viewer/ViewerControls';
+import { TiltIndicator } from '../components/viewer/TiltIndicator';
 import { ImmersiveViewer } from '../components/viewer/ImmersiveViewer';
 import type { VideoHandle, VideoStatus } from '../components/viewer/VideoSurface';
 import { LibraryScreen } from './LibraryScreen';
@@ -216,6 +218,12 @@ export const StudioScreen: React.FC = () => {
           onImport={() => setShowGallery(true)}
           onCapture={() => setShowCamera(true)}
         />
+      ) : !loaded ? (
+        <View style={styles.loadingState}>
+          <ActivityIndicator size="small" color={palette.blue} />
+          <Text style={styles.loadingTitle}>{t('loading')}</Text>
+          <Text style={styles.loadingBody}>{t('app_subtitle')}</Text>
+        </View>
       ) : !current ? (
         // Only once loading has settled: flashing an empty state over a
         // library that is about to appear reads as data loss.
@@ -288,21 +296,35 @@ export const StudioScreen: React.FC = () => {
             />
 
             <View pointerEvents="box-none" style={styles.viewerOverlay}>
-              <NativeGlass overMedia style={styles.viewerBadge}>
-                <Text style={styles.viewerBadgeText}>
-                  {current.mediaType === 'video'
-                    ? t('badge_video')
-                    : t('badge_photo')}
-                </Text>
-              </NativeGlass>
+              <View style={styles.viewerOverlayTop}>
+                <NativeGlass overMedia style={styles.viewerBadge}>
+                  <Text style={styles.viewerBadgeText}>
+                    {current.mediaType === 'video'
+                      ? t('badge_video')
+                      : t('badge_photo')}
+                  </Text>
+                </NativeGlass>
 
-              <IOSIconButton
-                symbol="slider.horizontal.3"
-                overMedia
-                accessibilityLabel={t('action_adjust')}
-                selected={showAlignment}
-                onPress={() => setShowAlignment((value) => !value)}
-              />
+                <IOSIconButton
+                  symbol="slider.horizontal.3"
+                  overMedia
+                  accessibilityLabel={t('action_adjust')}
+                  selected={showAlignment}
+                  onPress={() => setShowAlignment((value) => !value)}
+                />
+              </View>
+
+              {mode === 'parallax_tilt' && current.mediaType === 'photo' && (
+                <View pointerEvents="none" style={styles.gyroOverlay}>
+                  <TiltIndicator
+                    compact
+                    tiltX={tiltX}
+                    leftLabel={t('viewer_eye_left')}
+                    rightLabel={t('viewer_eye_right')}
+                    hint={t('viewer_tilt_hint')}
+                  />
+                </View>
+              )}
             </View>
           </View>
 
@@ -348,7 +370,6 @@ export const StudioScreen: React.FC = () => {
               }
               videoStatus={videoStatus}
               videoRef={videoRef}
-              tiltX={tiltX}
               onEnterFullscreen={() => setImmersive(true)}
             />
           </View>
@@ -497,6 +518,24 @@ const createStyles = (palette: Palette) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.canvas },
     content: { paddingHorizontal: spacing.lg },
+    loadingState: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing.xl,
+      paddingBottom: 60,
+    },
+    loadingTitle: {
+      ...type.headline,
+      marginTop: spacing.md,
+      color: palette.label,
+    },
+    loadingBody: {
+      ...type.footnote,
+      marginTop: spacing.xs,
+      textAlign: 'center',
+      color: palette.labelSecondary,
+    },
 
     nav: {
       minHeight: 56,
@@ -520,9 +559,18 @@ const createStyles = (palette: Palette) =>
     viewerOverlay: {
       ...StyleSheet.absoluteFillObject,
       padding: 10,
+    },
+    viewerOverlayTop: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
+    },
+    gyroOverlay: {
+      position: 'absolute',
+      top: 42,
+      left: 0,
+      right: 0,
+      alignItems: 'center',
     },
     viewerBadge: {
       height: 24,

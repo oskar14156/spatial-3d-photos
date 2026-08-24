@@ -27,16 +27,19 @@ export type ProbeResult = {
 };
 
 /**
- * Only these can carry Apple's stereo payload, so everything else is settled
- * without touching the file. Skipping JPEGs and H.264 clips is what keeps a
- * multi-thousand-item library from being decoded one asset at a time.
+ * These are the common containers that can carry Apple's stereo payload. The
+ * media-library filename is not always reliable for imported videos, so use
+ * the asset media type as a fallback instead of silently skipping them.
  */
 function isCandidate(asset: MediaLibrary.Asset): boolean {
   const name = asset.filename.toLowerCase();
   return (
+    asset.mediaType === 'video' ||
     name.endsWith('.heic') ||
     name.endsWith('.heif') ||
-    name.endsWith('.mov')
+    name.endsWith('.mov') ||
+    name.endsWith('.mp4') ||
+    name.endsWith('.m4v')
   );
 }
 

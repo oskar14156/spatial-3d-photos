@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -29,20 +29,29 @@ export function HorizonLine({ rollDegrees }: Props) {
   const roll = useSharedValue(0);
   const level = useSharedValue(0);
 
-  // Spring on the angle, not on the sample, so sensor jitter does not make the
-  // line buzz while the photographer holds still.
-  roll.value = withSpring(rollDegrees, { damping: 20, stiffness: 200, mass: 0.6 });
-  level.value = withTiming(Math.abs(rollDegrees) <= LEVEL_TOLERANCE_DEGREES ? 1 : 0, {
-    duration: 140,
-  });
+  // Shared values must not be written during render. Apart from producing a
+  // Reanimated warning, doing that restarted the spring on every telemetry
+  // update and made the line visibly flip when the phone crossed level.
+  useEffect(() => {
+    roll.value = withSpring(normaliseLineAngle(rollDegrees), {
+      damping: 20,
+      stiffness: 200,
+      mass: 0.6,
+    });
+    level.value = withTiming(
+      Math.abs(rollDegrees) <= LEVEL_TOLERANCE_DEGREES ? 1 : 0,
+      { duration: 140 }
+    );
+  }, [level, roll, rollDegrees]);
 
   const lineStyle = useAnimatedStyle(() => {
     const magnitude = Math.abs(roll.value);
+    const angle = Math.max(-FADE_LIMIT, Math.min(FADE_LIMIT, roll.value));
     return {
-      transform: [{ rotateZ: `${-roll.value}deg` }],
+      transform: [{ rotateZ: `${-angle}deg` }],
       // Past a deliberate tilt the level is no longer the point; get out of
       // the way rather than sitting there scolding.
-      opacity: magnitude > FADE_LIMIT ? 0.18 : 1,
+      opacity: magnitude > FADE_LIMIT ? 0.18 : 0.72,
     };
   });
 
@@ -80,8 +89,8 @@ export function HorizonLine({ rollDegrees }: Props) {
   );
 }
 
-const LINE_WIDTH = 220;
-const SEGMENT = 84;
+const LINE_WIDTH = 112;
+const SEGMENT = 36;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -96,14 +105,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     // Keeps the white line readable over a bright subject.
     shadowColor: '#000',
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.35,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
   },
   segment: {
     width: SEGMENT,
-    height: 2,
-    borderRadius: 1,
+    height: 1.5,
+    borderRadius: 0.75,
   },
   gap: {
     width: LINE_WIDTH - SEGMENT * 2,
@@ -111,9 +120,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   centreDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   reference: {
     position: 'absolute',
@@ -124,11 +133,21 @@ const styles = StyleSheet.create({
   },
   referenceSegment: {
     width: SEGMENT,
-    height: 2,
-    borderRadius: 1,
+    height: 1.5,
+    borderRadius: 0.75,
     backgroundColor: palette.labelSecondary,
   },
   referenceGap: {
     width: LINE_WIDTH - SEGMENT * 2,
   },
 });
+
+/**
+ * A horizon is a line, so 180° is visually identical to 0°. Choosing the
+ * nearest equivalent angle prevents the animation from taking the long way
+ * around when ARKit reports the equivalent value on the other side.
+ */
+function normaliseLineAngle(degrees: number) {
+  if (!Number.isFinite(degrees)) return 0;
+  return ((degrees + 90) % 180 + 180) % 180 - 90;
+}

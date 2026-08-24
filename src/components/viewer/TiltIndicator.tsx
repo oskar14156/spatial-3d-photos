@@ -5,6 +5,7 @@ import Animated, {
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import { type Palette, type, useThemedStyles } from '../../theme';
+import { NativeGlass } from '../common/NativeGlass';
 
 type Props = {
   /** -1 (fully left eye) … +1 (fully right eye). */
@@ -12,10 +13,12 @@ type Props = {
   leftLabel: string;
   rightLabel: string;
   hint: string;
+  /** Compact glass readout used as an overlay on the media. */
+  compact?: boolean;
 };
 
-const TRACK_HEIGHT = 3;
-const KNOB = 14;
+const TRACK_HEIGHT = 2;
+const KNOB = 11;
 
 /**
  * Shows where the gyro currently sits between the two eyes.
@@ -25,7 +28,13 @@ const KNOB = 14;
  * the same thing. The line makes the axis and its limits visible, and it is
  * driven straight off the shared value, so it costs no re-renders.
  */
-export function TiltIndicator({ tiltX, leftLabel, rightLabel, hint }: Props) {
+export function TiltIndicator({
+  tiltX,
+  leftLabel,
+  rightLabel,
+  hint,
+  compact = false,
+}: Props) {
   const styles = useThemedStyles(createStyles);
 
   const knobStyle = useAnimatedStyle(() => ({
@@ -43,40 +52,61 @@ export function TiltIndicator({ tiltX, leftLabel, rightLabel, hint }: Props) {
   });
 
   return (
-    <View style={styles.wrap}>
-      <View style={styles.labels}>
-        <Text style={styles.eye}>{leftLabel}</Text>
-        <Text style={styles.hint} numberOfLines={1}>
-          {hint}
-        </Text>
-        <Text style={styles.eye}>{rightLabel}</Text>
-      </View>
+    <NativeGlass
+      overMedia
+      style={[styles.glass, compact && styles.glassCompact]}
+    >
+      <View style={[styles.wrap, compact && styles.wrapCompact]}>
+        <View style={styles.labels}>
+          <Text style={[styles.eye, compact && styles.compactText]}>
+            {leftLabel}
+          </Text>
+          {!compact && (
+            <Text style={styles.hint} numberOfLines={1}>
+              {hint}
+            </Text>
+          )}
+          <Text style={[styles.eye, compact && styles.compactText]}>
+            {rightLabel}
+          </Text>
+        </View>
 
-      <View style={styles.track}>
-        <Animated.View style={[styles.fill, fillStyle]} />
-        <View style={styles.centreTick} />
-        <Animated.View style={[styles.knobHolder, knobStyle]}>
-          <View style={styles.knob} />
-        </Animated.View>
+        <View style={styles.track}>
+          <Animated.View style={[styles.fill, fillStyle]} />
+          <View style={styles.centreTick} />
+          <Animated.View style={[styles.knobHolder, knobStyle]}>
+            <View style={styles.knob} />
+          </Animated.View>
+        </View>
       </View>
-    </View>
+    </NativeGlass>
   );
 }
 
 const createStyles = (palette: Palette) =>
   StyleSheet.create({
-    wrap: { paddingVertical: 6 },
+    glass: {
+      minWidth: 132,
+      borderRadius: 17,
+    },
+    glassCompact: {
+      minWidth: 122,
+      borderRadius: 16,
+    },
+    wrap: { paddingHorizontal: 10, paddingVertical: 8 },
+    wrapCompact: { paddingHorizontal: 9, paddingVertical: 7 },
     labels: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 9,
+      marginBottom: 7,
       gap: 10,
     },
     eye: {
       ...type.eyebrow,
       color: palette.labelSecondary,
     },
+    compactText: { fontSize: 8 },
     hint: {
       ...type.caption,
       flex: 1,
@@ -99,7 +129,7 @@ const createStyles = (palette: Palette) =>
       position: 'absolute',
       left: '50%',
       width: StyleSheet.hairlineWidth * 2,
-      height: 9,
+      height: 7,
       marginLeft: -1,
       borderRadius: 1,
       backgroundColor: palette.separatorStrong,

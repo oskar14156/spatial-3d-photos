@@ -1,5 +1,4 @@
 import React from 'react';
-import type { SharedValue } from 'react-native-reanimated';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../common/Icon';
 import type { AnaglyphColorMode, StereoPair, ViewMode, ViewerOptions } from '../../types';
@@ -9,7 +8,6 @@ import { hapticFeedback } from '../../utils/haptics';
 import { Segmented } from '../common/Segmented';
 import { Slider } from '../common/Slider';
 import type { VideoHandle, VideoStatus } from './VideoSurface';
-import { TiltIndicator } from './TiltIndicator';
 
 type Props = {
   pair: StereoPair;
@@ -18,8 +16,6 @@ type Props = {
   onChangeOptions: (patch: Partial<ViewerOptions>) => void;
   videoStatus: VideoStatus;
   videoRef: React.RefObject<VideoHandle | null>;
-  /** Live gyro position, shared with the parallax surface. */
-  tiltX: SharedValue<number>;
   onEnterFullscreen: () => void;
 };
 
@@ -37,7 +33,6 @@ export function ViewerControls({
   onChangeOptions,
   videoStatus,
   videoRef,
-  tiltX,
   onEnterFullscreen,
 }: Props) {
   const { t } = useTranslation();
@@ -171,16 +166,6 @@ export function ViewerControls({
             />
           )}
         </View>
-      );
-
-    case 'parallax_tilt':
-      return (
-        <TiltIndicator
-          tiltX={tiltX}
-          leftLabel={t('viewer_eye_left')}
-          rightLabel={t('viewer_eye_right')}
-          hint={t('viewer_tilt_hint')}
-        />
       );
 
     default:

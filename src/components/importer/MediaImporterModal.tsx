@@ -23,6 +23,7 @@ import {
   splitSideBySideImage,
 } from '../../utils/stereoImageProcessor';
 import { IOSSheet } from '../common/IOSSheet';
+import { IndeterminateProgress } from '../common/IndeterminateProgress';
 
 type Props = {
   visible: boolean;
@@ -86,6 +87,7 @@ export const MediaImporterModal: React.FC<Props> = ({
 
     if (wantOriginal && asset.assetId) {
       try {
+        setProgress(t('import_retrieving_original'));
         // Reading the original needs Photos access in its own right; the
         // picker's own permission does not cover it.
         const library = await MediaLibrary.requestPermissionsAsync();
@@ -106,10 +108,14 @@ export const MediaImporterModal: React.FC<Props> = ({
   }
 
   async function importAppleSpatial() {
-    const asset = await pick(['images', 'videos'], true);
-    if (!asset) return;
-
     setBusy(true);
+    setProgress(t('import_processing'));
+    const asset = await pick(['images', 'videos'], true);
+    if (!asset) {
+      setBusy(false);
+      return;
+    }
+
     try {
       setProgress(t('import_inspecting'));
       const inspection = await SpatialMedia.inspect(asset.uri);
@@ -179,11 +185,17 @@ export const MediaImporterModal: React.FC<Props> = ({
   }
 
   async function importSideBySide() {
+    setBusy(true);
+    setProgress(t('import_processing'));
     const asset = await pick(['images']);
-    if (!asset) return;
+    if (!asset) {
+      setBusy(false);
+      return;
+    }
 
     if (!asset.width || !asset.height) {
       Alert.alert(t('import_failed'), t('error'));
+      setBusy(false);
       return;
     }
 
@@ -193,7 +205,6 @@ export const MediaImporterModal: React.FC<Props> = ({
       Alert.alert(t('import_wide_warning_title'), t('import_wide_warning_body'));
     }
 
-    setBusy(true);
     try {
       setProgress(t('import_splitting_sbs'));
       const split = await splitSideBySideImage(
@@ -222,13 +233,21 @@ export const MediaImporterModal: React.FC<Props> = ({
   }
 
   async function importTwoPhotos() {
+    setBusy(true);
+    setProgress(t('import_processing'));
     const left = await pick(['images']);
-    if (!left) return;
+    if (!left) {
+      setBusy(false);
+      return;
+    }
 
     hapticFeedback.selection();
 
     const right = await pick(['images']);
-    if (!right) return;
+    if (!right) {
+      setBusy(false);
+      return;
+    }
 
     const pair = createStereoPairFromUris(
       left.uri,
@@ -260,6 +279,9 @@ export const MediaImporterModal: React.FC<Props> = ({
           <ActivityIndicator size="large" color={palette.blue} />
           <Text style={styles.busyTitle}>{t('import_processing')}</Text>
           <Text style={styles.busyText}>{progress}</Text>
+          <View style={styles.busyProgress}>
+            <IndeterminateProgress color={palette.blue} />
+          </View>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
@@ -385,5 +407,10 @@ const createStyles = (palette: Palette) =>
     textAlign: 'center',
     marginTop: 5,
     color: palette.labelTertiary,
+  },
+  busyProgress: {
+    width: '100%',
+    maxWidth: 280,
+    marginTop: spacing.xl,
   },
 });
