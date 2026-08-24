@@ -191,6 +191,13 @@ const GLYPHS: Record<string, Glyph> = {
     <Path d="M13.6 2L5 13.4h5.2L9.4 22 19 10.2h-5.6z" fill={c} />
   ),
 
+  'bolt.slash.fill': (c, w) => (
+    <>
+      <Path d="M13.6 2L5 13.4h5.2L9.4 22 19 10.2h-5.6z" fill={c} />
+      <Line x1={4} y1={4} x2={20} y2={20} {...line(c, w)} />
+    </>
+  ),
+
   'exclamationmark.triangle.fill': (c) => (
     <>
       <Path d="M12 3.2l9.4 16.3H2.6z" fill={c} />

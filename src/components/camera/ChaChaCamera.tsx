@@ -295,12 +295,37 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           </Text>
         </NativeGlass>
 
-        <IOSIconButton
-          symbol="bolt.badge.automatic.fill"
-          accessibilityLabel={t('guide_auto_capture')}
-          selected={autoShutter}
-          onPress={() => setAutoShutter((value) => !value)}
-        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            autoShutter ? t('guide_auto_disable') : t('guide_auto_enable')
+          }
+          accessibilityState={{ selected: autoShutter }}
+          onPress={() => {
+            hapticFeedback.light();
+            // Allow enabling auto capture while the phone is already in the
+            // target position; the edge-trigger will fire on the next effect.
+            wasReady.current = false;
+            setAutoShutter((value) => !value);
+          }}
+          style={({ pressed }) => [styles.autoButton, pressed && styles.pressed]}
+        >
+          <NativeGlass
+            interactive
+            tintColor={autoShutter ? 'rgba(10,132,255,0.28)' : undefined}
+            style={[styles.autoPill, autoShutter && styles.autoPillOn]}
+          >
+            <Icon
+              name={autoShutter ? 'bolt.badge.automatic.fill' : 'bolt.slash.fill'}
+              color={autoShutter ? palette.blue : palette.labelSecondary}
+              size={16}
+              weight="semibold"
+            />
+            <Text style={styles.autoText}>
+              {autoShutter ? t('guide_auto_on') : t('guide_auto_off')}
+            </Text>
+          </NativeGlass>
+        </Pressable>
       </View>
 
       <HorizonLine rollDegrees={motion.rollDegrees} />
@@ -640,6 +665,19 @@ const createStyles = (palette: Palette) => StyleSheet.create({
     justifyContent: 'center',
   },
   stepText: { ...type.eyebrow, color: palette.label },
+  autoButton: { height: 44, minWidth: 44 },
+  autoPill: {
+    height: 44,
+    minWidth: 44,
+    borderRadius: 22,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  autoPillOn: { paddingHorizontal: 11 },
+  autoText: { ...type.eyebrow, fontSize: 9, color: palette.label, fontWeight: '700' },
 
   levelWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   levelPill: {

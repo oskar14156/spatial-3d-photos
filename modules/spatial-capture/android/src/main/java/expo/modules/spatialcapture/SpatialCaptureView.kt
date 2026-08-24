@@ -16,7 +16,6 @@ import com.google.ar.core.Config
 import com.google.ar.core.Frame
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
-import com.google.ar.core.exceptions.CameraNotAvailableException
 import expo.modules.kotlin.AppContext
 import expo.modules.kotlin.viewevent.EventDispatcher
 import expo.modules.kotlin.views.ExpoView
@@ -47,9 +46,14 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
   private var session: Session? = null
   private var active = false
   private var lastTelemetry = 0L
+  private var unavailableReported = false
+
+  /** Latest pose copied on the ARCore GL thread for JS-thread anchor calls. */
+  @Volatile private var latestDisplayPose: FloatArray? = null
+  @Volatile private var latestTrackingState: TrackingState? = null
 
   /** Camera pose recorded at the first shot; displacement is measured from it. */
-  private var anchorPose: FloatArray? = null
+  @Volatile private var anchorPose: FloatArray? = null
   private var smoothed = floatArrayOf(0f, 0f, 0f)
 
   private val captureRequested = AtomicBoolean(false)
@@ -82,48 +86,52 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
   }
 
   private fun start() {
-    val created = runCatching { Session(context) }.getOrNull()
-    if (created == null) {
-      onAvailabilityChange(mapOf("worldTracking" to false, "lidar" to false))
-      return
+    unavailableReported = false
+    latestDisplayPose = null
+    latestTrackingState = null
+
+    try {
+      val created = Session(context)
+      session = created
+
+      val config = Config(created)
+      val depthSupported = created.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
+      if (depthSupported) config.depthMode = Config.DepthMode.AUTOMATIC
+      config.focusMode = Config.FocusMode.AUTO
+      config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+      created.configure(config)
+      created.resume()
+
+      // Match the cross-platform event contract. Android's depth API is the
+      // equivalent fallback to LiDAR for the shared camera UI.
+      onAvailabilityChange(mapOf("worldTracking" to true, "lidar" to depthSupported))
+      surface.onResume()
+    } catch (error: Throwable) {
+      reportUnavailable(error)
     }
-
-    val config = Config(created)
-    val depthSupported = created.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
-    if (depthSupported) config.depthMode = Config.DepthMode.AUTOMATIC
-    config.focusMode = Config.FocusMode.AUTO
-    config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
-    created.configure(config)
-
-    session = created
-    // Match the cross-platform event contract. Android's depth API is the
-    // equivalent fallback to LiDAR for the shared camera UI.
-    onAvailabilityChange(mapOf("worldTracking" to true, "lidar" to depthSupported))
-
-    runCatching { created.resume() }.onFailure { error ->
-      if (error is CameraNotAvailableException) {
-        onAvailabilityChange(mapOf("worldTracking" to false, "lidar" to false))
-      }
-    }
-    surface.onResume()
   }
 
   private fun stop() {
     surface.onPause()
-    session?.pause()
+    runCatching { session?.pause() }
+    latestDisplayPose = null
+    latestTrackingState = null
   }
 
   fun release() {
     stop()
-    session?.close()
+    runCatching { session?.close() }
     session = null
   }
 
   fun setAnchor(): Boolean {
-    val frame = runCatching { session?.update() }.getOrNull() ?: return false
-    if (frame.camera.trackingState != TrackingState.TRACKING) return false
+    // Session.update() is only legal on the GL/render thread. The previous
+    // implementation called it from the JS queue while onDrawFrame was also
+    // updating ARCore, which could crash immediately after the first shot.
+    val pose = latestDisplayPose ?: return false
+    if (latestTrackingState != TrackingState.TRACKING) return false
 
-    anchorPose = FloatArray(16).also { frame.camera.pose.toMatrix(it, 0) }
+    anchorPose = pose.copyOf()
     smoothed = floatArrayOf(0f, 0f, 0f)
     return true
   }
@@ -153,19 +161,41 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
 
   override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
     GLES20.glViewport(0, 0, width, height)
-    session?.setDisplayGeometry(displayRotation(), width, height)
+    runCatching { session?.setDisplayGeometry(displayRotation(), width, height) }
   }
 
   override fun onDrawFrame(gl: GL10?) {
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
     val current = session ?: return
-    current.setCameraTextureName(background.textureId)
+    val frame = try {
+      // Keep ARCore's display-oriented pose and camera texture in sync with
+      // rotation changes, including devices that resize without recreating
+      // the view.
+      if (surface.width > 0 && surface.height > 0) {
+        current.setDisplayGeometry(displayRotation(), surface.width, surface.height)
+      }
+      current.setCameraTextureName(background.textureId)
+      current.update()
+    } catch (error: Throwable) {
+      reportUnavailable(error)
+      return
+    }
 
-    val frame = runCatching { current.update() }.getOrNull() ?: return
-    background.draw(frame)
+    try {
+      background.draw(frame)
+    } catch (error: Throwable) {
+      reportUnavailable(error)
+      return
+    }
 
     if (captureRequested.getAndSet(false)) fulfilCapture(frame)
+
+    val displayPose = FloatArray(16).also {
+      frame.camera.displayOrientedPose.toMatrix(it, 0)
+    }
+    latestDisplayPose = displayPose
+    latestTrackingState = frame.camera.trackingState
 
     // ~8 Hz is plenty for a human following a distance readout, and keeps the
     // bridge quiet while the session runs at 30 fps.
@@ -173,16 +203,15 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     if (now - lastTelemetry < 120) return
     lastTelemetry = now
 
-    emitMotion(frame)
+    emitMotion(frame, displayPose)
     emitDistance(frame)
   }
 
   // MARK: - Telemetry
 
-  private fun emitMotion(frame: Frame) {
+  private fun emitMotion(frame: Frame, displayPose: FloatArray) {
     val camera = frame.camera
-    val pose = FloatArray(16).also { camera.pose.toMatrix(it, 0) }
-    val roll = rollDegrees(pose)
+    val roll = rollDegrees(displayPose)
     val tracking = describe(camera.trackingState)
 
     onTrackingStateChange(mapOf("state" to tracking))
@@ -208,14 +237,13 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     val inverse = FloatArray(16)
     Matrix.invertM(inverse, 0, anchor, 0)
 
-    val world = floatArrayOf(pose[12], pose[13], pose[14], 1f)
+    val world = floatArrayOf(displayPose[12], displayPose[13], displayPose[14], 1f)
     val local = FloatArray(4)
     Matrix.multiplyMV(local, 0, inverse, 0, world, 0)
 
-    val axes = screenAxes()
     val raw = floatArrayOf(
-      local[0] * axes.right[0] + local[1] * axes.right[1] + local[2] * axes.right[2],
-      local[0] * axes.up[0] + local[1] * axes.up[1] + local[2] * axes.up[2],
+      local[0],
+      local[1],
       -local[2]
     )
 
@@ -266,27 +294,11 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
 
   // MARK: - Orientation
 
-  private class Axes(val up: FloatArray, val right: FloatArray)
-
-  /**
-   * The camera-space directions that point up and right on screen.
-   *
-   * ARCore's camera frame is defined for the device in its natural
-   * orientation, so a rotated display needs the axes rotated with it —
-   * otherwise "move right" and the level reading are both wrong by 90 degrees.
-   */
-  private fun screenAxes(): Axes = when (displayRotation()) {
-    Surface.ROTATION_90 -> Axes(floatArrayOf(-1f, 0f, 0f), floatArrayOf(0f, 1f, 0f))
-    Surface.ROTATION_180 -> Axes(floatArrayOf(0f, -1f, 0f), floatArrayOf(-1f, 0f, 0f))
-    Surface.ROTATION_270 -> Axes(floatArrayOf(1f, 0f, 0f), floatArrayOf(0f, -1f, 0f))
-    else -> Axes(floatArrayOf(0f, 1f, 0f), floatArrayOf(1f, 0f, 0f))
-  }
-
   /** Zero when the top of the screen points at world up. */
   private fun rollDegrees(pose: FloatArray): Double {
-    val axes = screenAxes()
-    val up = rotate(pose, axes.up)
-    val right = rotate(pose, axes.right)
+    // displayOrientedPose defines +X as screen-right and +Y as screen-up.
+    val up = rotate(pose, floatArrayOf(0f, 1f, 0f))
+    val right = rotate(pose, floatArrayOf(1f, 0f, 0f))
 
     // How far world-up has leaned onto the screen's horizontal axis.
     return Math.toDegrees(atan2(right[1].toDouble(), up[1].toDouble()))
@@ -302,6 +314,23 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     val length = sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2])
     if (length > 0f) for (i in 0..2) out[i] /= length
     return out
+  }
+
+  private fun reportUnavailable(error: Throwable) {
+    if (unavailableReported) return
+    unavailableReported = true
+    latestDisplayPose = null
+    latestTrackingState = null
+    runCatching { session?.pause() }
+    runCatching { session?.close() }
+    session = null
+    onAvailabilityChange(mapOf("worldTracking" to false, "lidar" to false))
+    onTrackingStateChange(
+      mapOf(
+        "state" to "unavailable",
+        "message" to (error.message ?: "ARCore camera unavailable.")
+      )
+    )
   }
 
   @Suppress("DEPRECATION")

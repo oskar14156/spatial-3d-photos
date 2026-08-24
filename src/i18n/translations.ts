@@ -201,6 +201,10 @@ export const TRANSLATIONS = {
     guide_target: 'Ziel',
     guide_moved: 'Bewegt',
     guide_auto_capture: 'Auto-Auslöser',
+    guide_auto_on: 'AUTO AN',
+    guide_auto_off: 'AUTO AUS',
+    guide_auto_enable: 'Auto-Auslöser einschalten',
+    guide_auto_disable: 'Auto-Auslöser ausschalten',
     capture_retake: 'Neu beginnen',
     capture_left_hint: 'Motiv mittig, iPhone waagerecht, auslösen.',
 
@@ -523,6 +527,10 @@ export const TRANSLATIONS = {
     guide_target: 'Target',
     guide_moved: 'Moved',
     guide_auto_capture: 'Auto shutter',
+    guide_auto_on: 'AUTO ON',
+    guide_auto_off: 'AUTO OFF',
+    guide_auto_enable: 'Turn on auto shutter',
+    guide_auto_disable: 'Turn off auto shutter',
     capture_retake: 'Start over',
     capture_left_hint: 'Centre the subject, hold level, shoot.',
 

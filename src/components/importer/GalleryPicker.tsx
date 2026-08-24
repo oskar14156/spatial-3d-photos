@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import { Icon } from '../common/Icon';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StereoPair } from '../../types';
 import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -206,8 +206,8 @@ export const GalleryPicker: React.FC<Props> = ({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={styles.root}>
-        <View style={[styles.header, { paddingTop: insets.top ? 0 : spacing.md }]}>
+      <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+        <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
             onPress={onClose}
@@ -354,7 +354,7 @@ export const GalleryPicker: React.FC<Props> = ({
             )}
           </Pressable>}
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 };

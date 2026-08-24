@@ -167,39 +167,16 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   /// portrait therefore puts screen-up along camera +x — which is why reading
   /// `eulerAngles.z` as "roll" reported about 90° whenever the phone was held
   /// upright, and the level check could never pass.
-  private var screenAxesInCameraSpace: (up: simd_float3, right: simd_float3) {
-    switch interfaceOrientation {
-    case .landscapeRight:
-      return (simd_float3(0, 1, 0), simd_float3(1, 0, 0))
-    case .landscapeLeft:
-      return (simd_float3(0, -1, 0), simd_float3(-1, 0, 0))
-    case .portraitUpsideDown:
-      return (simd_float3(-1, 0, 0), simd_float3(0, 1, 0))
-    default:
-      return (simd_float3(1, 0, 0), simd_float3(0, -1, 0))
-    }
-  }
-
   /// Signed device roll in degrees, zero when the top of the screen points at
   /// world up. Positive means the horizon tilts clockwise on screen.
   private func rollDegrees(for camera: ARCamera) -> Double {
-    let t = camera.transform
-    let rotation = simd_float3x3(
-      simd_make_float3(t.columns.0),
-      simd_make_float3(t.columns.1),
-      simd_make_float3(t.columns.2)
+    // ARKit applies the current interface orientation here. This keeps the
+    // same screen-up/screen-right convention in portrait and landscape.
+    let worldUpInScreen = simd_mul(
+      camera.viewMatrix(for: interfaceOrientation),
+      simd_float4(0, 1, 0, 0)
     )
-
-    let axes = screenAxesInCameraSpace
-    let screenUp = simd_normalize(rotation * axes.up)
-    let screenRight = simd_normalize(rotation * axes.right)
-    let worldUp = simd_float3(0, 1, 0)
-
-    // How far world-up has leaned onto the screen's horizontal axis.
-    return Double(atan2(
-      simd_dot(worldUp, screenRight),
-      simd_dot(worldUp, screenUp)
-    )) * 180 / .pi
+    return Double(atan2(worldUpInScreen.x, worldUpInScreen.y)) * 180 / .pi
   }
 
   private static func writeJPEG(
@@ -268,22 +245,19 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
       return
     }
 
-    // Express the current position in the anchor camera's own frame, so
-    // "lateral" means sideways relative to how the first shot was aimed —
-    // not sideways in some arbitrary world axis.
+    // Express the world-space displacement in the current display-oriented
+    // camera frame. ARKit applies the interface orientation here, so the
+    // lateral sign stays correct in both portrait and landscape.
     let current = frame.camera.transform.columns.3
-    let local = simd_mul(simd_inverse(anchorTransform), current)
-
-    // Screen-space axes, so "lateral" still means sideways-on-screen when the
-    // phone is held in portrait.
-    let axes = screenAxesInCameraSpace
-    let localPoint = simd_make_float3(local)
+    let anchorPosition = anchorTransform.columns.3
+    let worldDelta = simd_make_float3(current - anchorPosition)
+    let local = simd_mul(
+      frame.camera.viewMatrix(for: interfaceOrientation),
+      simd_float4(worldDelta, 0)
+    )
     let raw = simd_float3(
-      // `axes.right` is already the screen-right axis for the current
-      // interface orientation. Applying another global sign flip made the
-      // guidance reverse direction in portrait and landscape.
-      simd_dot(localPoint, axes.right),
-      simd_dot(localPoint, axes.up),
+      local.x,
+      local.y,
       -local.z
     )
 
