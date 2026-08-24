@@ -28,6 +28,20 @@ echo "Starting $requested debug build on Metro port $port"
 
 case "$requested" in
   ios)
+        ios_device="${IOS_DEVICE_ID:-}"
+        if [ -z "$ios_device" ] && command -v xcrun >/dev/null 2>&1; then
+          # xctrace lists the Mac and simulators as well; only inspect the
+          # online device section and select the first connected iPhone.
+          ios_device="$(xcrun xctrace list devices 2>/dev/null \
+            | awk '/^== Devices ==/{online=1; next} /^== Devices Offline ==/{online=0} /^== Simulators ==/{online=0} online && /iPhone/ {print}' \
+            | sed -n 's/.*(\([0-9A-Fa-f-]\{25,\}\)).*/\1/p' \
+            | head -n 1)"
+        fi
+
+        if [ -n "$ios_device" ]; then
+          exec npx expo run:ios --device "$ios_device" --configuration Debug --port "$port" --no-install
+        fi
+
         exec npx expo run:ios --device --configuration Debug --port "$port" --no-install
     ;;
   android)

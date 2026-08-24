@@ -30,6 +30,9 @@ export async function importAsset(
   ) => string;
 
   try {
+    const startedAt = Date.now();
+    console.log(`[Spatial3D] import start: ${asset.filename}`);
+
     // The probe keeps its copy when the asset turned out to be spatial; make
     // a fresh one otherwise. Either way we work on a file we are allowed to
     // read, never on the library path itself.
@@ -49,7 +52,9 @@ export async function importAsset(
         : await SpatialMedia.inspect(uri);
 
     if (inspection.kind === 'spatial-photo') {
+      console.log(`[Spatial3D] split spatial photo: ${asset.filename}`);
       const result = await SpatialMedia.splitSpatialPhoto(uri);
+      console.log(`[Spatial3D] import finished: ${asset.filename} (${Date.now() - startedAt}ms)`);
       return {
         reason: '',
         pair: {
@@ -72,7 +77,9 @@ export async function importAsset(
     }
 
     if (inspection.kind === 'spatial-video') {
+      console.log(`[Spatial3D] split spatial video: ${asset.filename}`);
       const result = await SpatialMedia.splitSpatialVideo(uri);
+      console.log(`[Spatial3D] import finished: ${asset.filename} (${Date.now() - startedAt}ms)`);
       return {
         reason: '',
         pair: {
@@ -131,6 +138,7 @@ export async function importAsset(
       }`,
     };
   } catch (error) {
+    console.error(`[Spatial3D] import failed: ${asset.filename}`, error);
     return {
       reason: `${asset.filename}: ${
         error instanceof Error ? error.message : t('error')

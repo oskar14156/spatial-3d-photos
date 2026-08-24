@@ -1,5 +1,5 @@
 import ExpoModulesCore
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreImage
 import CoreMedia
 import CoreVideo
@@ -8,6 +8,7 @@ import Photos
 import ImageIO
 import UniformTypeIdentifiers
 import UIKit
+import Foundation
 
 public final class SpatialMediaModule: Module {
   public func definition() -> ModuleDefinition {
@@ -359,6 +360,7 @@ public final class SpatialMediaModule: Module {
 
   @available(iOS 17.2, *)
   private static func splitSpatialVideo(_ url: URL) async throws -> [String: Any] {
+    print("[SpatialMedia] split start: \(url.lastPathComponent)")
     let asset = AVURLAsset(url: url)
     guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
       throw SpatialMediaError.noVideoTrack
@@ -394,6 +396,7 @@ public final class SpatialMediaModule: Module {
 
     let width = CVPixelBufferGetWidth(firstLeft)
     let height = CVPixelBufferGetHeight(firstLeft)
+    print("[SpatialMedia] first stereo frame: \(width)x\(height)")
 
     let leftURL = cacheURL(ext: "mov")
     let rightURL = cacheURL(ext: "mov")
@@ -414,37 +417,77 @@ public final class SpatialMediaModule: Module {
     let firstPTS = firstSample.presentationTimeStamp
     try leftWriter.start(at: .zero)
     try rightWriter.start(at: .zero)
+    print("[SpatialMedia] writers started")
 
-    try leftWriter.append(firstLeft, at: .zero)
-    try rightWriter.append(firstRight, at: .zero)
+    let audioGroup = DispatchGroup()
+    let audioError = ErrorBox()
 
-    while let sample = output.copyNextSampleBuffer() {
-      guard
-        let pair = eyePair(from: sample),
-        case .pixelBuffer(let leftBuffer) = pair.left.buffer,
-        case .pixelBuffer(let rightBuffer) = pair.right.buffer
-      else {
-        continue
+    if let audioTrack {
+      // The writer has separate video and audio inputs. Feeding all video
+      // first while leaving audio empty can make AVAssetWriter apply
+      // backpressure forever, so feed the audio input at the same time.
+      audioGroup.enter()
+      DispatchQueue(label: "spatial-media.audio-writer").async {
+        defer { audioGroup.leave() }
+        do {
+          try leftWriter.appendAudio(from: asset, track: audioTrack, startingAt: firstPTS)
+        } catch {
+          audioError.set(error)
+        }
       }
+    }
 
-      let pts = CMTimeSubtract(sample.presentationTimeStamp, firstPTS)
-      try leftWriter.append(leftBuffer, at: pts)
-      try rightWriter.append(rightBuffer, at: pts)
+    var videoError: Error?
+    do {
+      try leftWriter.append(firstLeft, at: .zero)
+      try rightWriter.append(firstRight, at: .zero)
+
+      while let sample = output.copyNextSampleBuffer() {
+        guard
+          let pair = eyePair(from: sample),
+          case .pixelBuffer(let leftBuffer) = pair.left.buffer,
+          case .pixelBuffer(let rightBuffer) = pair.right.buffer
+        else {
+          continue
+        }
+
+        let pts = CMTimeSubtract(sample.presentationTimeStamp, firstPTS)
+        try leftWriter.append(leftBuffer, at: pts)
+        try rightWriter.append(rightBuffer, at: pts)
+      }
+    } catch {
+      videoError = error
+    }
+
+    if await !Self.waitForGroup(audioGroup, timeout: 60) {
+      leftWriter.cancel()
+      rightWriter.cancel()
+      throw SpatialMediaError.writerTimedOut
+    }
+
+    if let videoError {
+      leftWriter.cancel()
+      rightWriter.cancel()
+      throw videoError
+    }
+
+    if let audioError = audioError.get() {
+      leftWriter.cancel()
+      rightWriter.cancel()
+      throw audioError
     }
 
     if reader.status == .failed {
+      leftWriter.cancel()
+      rightWriter.cancel()
       throw reader.error ?? SpatialMediaError.readFailed
     }
-
-    if let audioTrack {
-      // A second reader keeps the audio pass independent of the video pass; a
-      // single reader would stall whenever one of its outputs went undrained.
-      try leftWriter.appendAudio(from: asset, track: audioTrack, startingAt: firstPTS)
-    }
+    print("[SpatialMedia] video and audio frames written")
 
     async let leftFinished: Void = leftWriter.finish()
     async let rightFinished: Void = rightWriter.finish()
     _ = try await (leftFinished, rightFinished)
+    print("[SpatialMedia] split finished")
 
     let duration = try await asset.load(.duration)
 
@@ -456,6 +499,19 @@ public final class SpatialMediaModule: Module {
       "height": height,
       "duration": duration.seconds
     ]
+  }
+
+  private static func waitForGroup(
+    _ group: DispatchGroup,
+    timeout: TimeInterval
+  ) async -> Bool {
+    await withCheckedContinuation { continuation in
+      DispatchQueue.global(qos: .userInitiated).async {
+        continuation.resume(
+          returning: group.wait(timeout: .now() + timeout) != .timedOut
+        )
+      }
+    }
   }
 
   @available(iOS 17.2, *)
@@ -682,7 +738,10 @@ private final class EyeWriter {
     input = AVAssetWriterInput(
       mediaType: .video,
       outputSettings: [
-        AVVideoCodecKey: AVVideoCodecType.hevc,
+        // The source is MV-HEVC, but the temporary eye files are preview
+        // caches. H.264 is hardware-encoded more consistently and avoids a
+        // long HEVC-to-HEVC transcode on older iPhones.
+        AVVideoCodecKey: AVVideoCodecType.h264,
         AVVideoWidthKey: width,
         AVVideoHeightKey: height
       ]
@@ -744,21 +803,24 @@ private final class EyeWriter {
 
     guard reader.canAdd(output) else { return }
     reader.add(output)
-    guard reader.startReading() else { return }
+    guard reader.startReading() else {
+      throw reader.error ?? SpatialMediaError.readFailed
+    }
 
     while let sample = output.copyNextSampleBuffer() {
-      while !audioInput.isReadyForMoreMediaData {
-        if writer.status == .failed {
-          throw writer.error ?? SpatialMediaError.writeFailed
-        }
-        Thread.sleep(forTimeInterval: 0.002)
-      }
+      try waitUntilReady(audioInput)
 
       let rebased = try? CMSampleBuffer(
         copying: sample,
         withNewTiming: timingInfo(for: sample, offsetBy: firstPTS)
       )
-      audioInput.append(rebased ?? sample)
+      guard audioInput.append(rebased ?? sample) else {
+        throw writer.error ?? SpatialMediaError.writeFailed
+      }
+    }
+
+    if reader.status == .failed {
+      throw reader.error ?? SpatialMediaError.readFailed
     }
 
     audioInput.markAsFinished()
@@ -787,12 +849,7 @@ private final class EyeWriter {
   }
 
   func append(_ buffer: CVPixelBuffer, at time: CMTime) throws {
-    while !input.isReadyForMoreMediaData {
-      if writer.status == .failed {
-        throw writer.error ?? SpatialMediaError.writeFailed
-      }
-      Thread.sleep(forTimeInterval: 0.002)
-    }
+    try waitUntilReady(input)
 
     guard adaptor.append(buffer, withPresentationTime: time) else {
       throw writer.error ?? SpatialMediaError.writeFailed
@@ -806,6 +863,46 @@ private final class EyeWriter {
     if writer.status == .failed {
       throw writer.error ?? SpatialMediaError.writeFailed
     }
+  }
+
+  func cancel() {
+    writer.cancelWriting()
+  }
+
+  private func waitUntilReady(_ input: AVAssetWriterInput) throws {
+    let deadline = Date().addingTimeInterval(30)
+    while !input.isReadyForMoreMediaData {
+      switch writer.status {
+      case .failed:
+        throw writer.error ?? SpatialMediaError.writeFailed
+      case .cancelled, .completed:
+        throw SpatialMediaError.writerStopped
+      default:
+        break
+      }
+
+      if Date() >= deadline {
+        throw SpatialMediaError.writerTimedOut
+      }
+      Thread.sleep(forTimeInterval: 0.002)
+    }
+  }
+}
+
+private final class ErrorBox {
+  private let lock = NSLock()
+  private var value: Error?
+
+  func set(_ error: Error) {
+    lock.lock()
+    value = error
+    lock.unlock()
+  }
+
+  func get() -> Error? {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
   }
 }
 
@@ -821,6 +918,8 @@ private enum SpatialMediaError: LocalizedError {
   case noFrames
   case readFailed
   case writeFailed
+  case writerStopped
+  case writerTimedOut
 
   var errorDescription: String? {
     switch self {
@@ -835,6 +934,8 @@ private enum SpatialMediaError: LocalizedError {
     case .noFrames: return "The video contains no readable frames."
     case .readFailed: return "The spatial video could not be decoded."
     case .writeFailed: return "The stereo export could not be written."
+    case .writerStopped: return "The stereo video writer stopped unexpectedly."
+    case .writerTimedOut: return "The stereo video export timed out while waiting for the video writer."
     }
   }
 }

@@ -185,7 +185,7 @@ export const TRANSLATIONS = {
     viewer_mute: 'Ton aus',
     viewer_unmute: 'Ton an',
     viewer_speed: 'Tempo',
-    viewer_no_video_3d: 'Für Videos stehen Split und Schielblick zur Verfügung.',
+    viewer_no_video_3d: 'Für Videos stehen Split, Schielblick und VR-Modus zur Verfügung.',
 
     // Capture guidance
     guide_step_left: 'LINKS · 1 VON 2',
@@ -503,7 +503,7 @@ export const TRANSLATIONS = {
     viewer_mute: 'Mute',
     viewer_unmute: 'Unmute',
     viewer_speed: 'Speed',
-    viewer_no_video_3d: 'Videos support split and cross-eye viewing.',
+    viewer_no_video_3d: 'Videos support split, cross-eye, and VR viewing.',
 
     // Capture guidance
     guide_step_left: 'LEFT · 1 OF 2',

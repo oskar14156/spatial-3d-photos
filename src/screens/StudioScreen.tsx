@@ -370,7 +370,13 @@ export const StudioScreen: React.FC = () => {
               }
               videoStatus={videoStatus}
               videoRef={videoRef}
-              onEnterFullscreen={() => setImmersive(true)}
+              onChangeMode={setMode}
+              onEnterFullscreen={() => {
+                if (current.mediaType === 'video' && mode !== 'sbs') {
+                  setMode('sbs');
+                }
+                setImmersive(true);
+              }}
             />
           </View>
 

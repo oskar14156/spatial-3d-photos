@@ -57,7 +57,10 @@ const MAX_IN_FLIGHT = 2;
  * candidate has to be opened natively. Results are cached by asset id for the
  * life of the screen and the queue is bounded.
  */
-export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
+export function useSpatialProbe(
+  assets: MediaLibrary.Asset[],
+  enabled = true
+) {
   const [results, setResults] = useState<Record<string, ProbeResult>>({});
   const [scanning, setScanning] = useState(false);
 
@@ -67,6 +70,8 @@ export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
   const inFlight = useRef(0);
   const assetsById = useRef<Record<string, MediaLibrary.Asset>>({});
   const mounted = useRef(true);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   useEffect(() => {
     mounted.current = true;
@@ -83,6 +88,8 @@ export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
   }, []);
 
   const pump = useCallback(() => {
+    if (!enabledRef.current) return;
+
     while (inFlight.current < MAX_IN_FLIGHT && queue.current.length) {
       const id = queue.current.shift();
       if (!id) break;
@@ -123,7 +130,7 @@ export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
           publish(id, { state: 'failed' });
         } finally {
           inFlight.current -= 1;
-          if (queue.current.length) {
+          if (queue.current.length && enabledRef.current) {
             pump();
           } else if (inFlight.current === 0 && mounted.current) {
             setScanning(false);
@@ -131,9 +138,14 @@ export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
         }
       })();
     }
-  }, [publish]);
+  }, [enabled, publish]);
 
   useEffect(() => {
+    if (!enabled) {
+      if (mounted.current) setScanning(false);
+      return;
+    }
+
     let added = false;
 
     for (const asset of assets) {
@@ -154,8 +166,11 @@ export function useSpatialProbe(assets: MediaLibrary.Asset[]) {
     if (added) {
       setScanning(true);
       pump();
+    } else if (queue.current.length) {
+      setScanning(true);
+      pump();
     }
-  }, [assets, publish, pump]);
+  }, [assets, enabled, publish, pump]);
 
   return { results, scanning };
 }

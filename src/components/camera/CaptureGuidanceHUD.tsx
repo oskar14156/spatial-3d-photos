@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../common/Icon';
-import { mediaPalette as palette, radius, type } from '../../theme';
+import { Palette, radius, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { formatMetricDistance } from '../../utils/stereobaseCalculator';
 import type { Guidance } from '../../utils/captureGuidance';
@@ -23,6 +23,8 @@ type Props = {
  */
 export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Props) {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   if (!trackingOk) {
     return (
@@ -41,7 +43,7 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
     );
   }
 
-  const tone = toneFor(guidance);
+  const tone = toneFor(guidance, palette);
 
   const headline =
     guidance.status === 'ready'
@@ -106,7 +108,7 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
   );
 }
 
-function toneFor(guidance: Guidance) {
+function toneFor(guidance: Guidance, palette: Palette) {
   switch (guidance.status) {
     case 'ready':
       return palette.green;
@@ -138,7 +140,7 @@ function iconFor(guidance: Guidance) {
   }
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) => StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 520,

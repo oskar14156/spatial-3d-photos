@@ -22,7 +22,7 @@ import {
   type TrackingState,
 } from '../../../modules/spatial-capture';
 import type { StereoPair, SubjectPresetId } from '../../types';
-import { mediaPalette as palette, radius, type } from '../../theme';
+import { Palette, radius, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 import {
@@ -67,6 +67,8 @@ const IDLE_MOTION: MotionEvent = {
  */
 export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) => {
   const { t, language } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
@@ -459,6 +461,8 @@ function PresetChip({
   selected: boolean;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
+
   return (
     <Pressable
       key={id}
@@ -483,7 +487,7 @@ function isNear(value: number, target: number) {
   return Math.abs(value - target) <= Math.max(0.02, target * 0.05);
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) => StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: palette.canvas,

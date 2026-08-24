@@ -17,6 +17,7 @@ type Props = {
   videoStatus: VideoStatus;
   videoRef: React.RefObject<VideoHandle | null>;
   onEnterFullscreen: () => void;
+  onChangeMode: (mode: ViewMode) => void;
 };
 
 const WIGGLE_RATES = [6, 10, 15, 20];
@@ -34,6 +35,7 @@ export function ViewerControls({
   videoStatus,
   videoRef,
   onEnterFullscreen,
+  onChangeMode,
 }: Props) {
   const { t } = useTranslation();
   const { palette } = useTheme();
@@ -41,7 +43,15 @@ export function ViewerControls({
 
   if (pair.mediaType === 'video') {
     return (
-      <VideoControls status={videoStatus} videoRef={videoRef} />
+      <VideoControls
+        mode={mode}
+        options={options}
+        status={videoStatus}
+        videoRef={videoRef}
+        onChangeOptions={onChangeOptions}
+        onChangeMode={onChangeMode}
+        onEnterFullscreen={onEnterFullscreen}
+      />
     );
   }
 
@@ -174,11 +184,21 @@ export function ViewerControls({
 }
 
 function VideoControls({
+  mode,
+  options,
   status,
   videoRef,
+  onChangeOptions,
+  onChangeMode,
+  onEnterFullscreen,
 }: {
+  mode: ViewMode;
+  options: ViewerOptions;
   status: VideoStatus;
   videoRef: React.RefObject<VideoHandle | null>;
+  onChangeOptions: (patch: Partial<ViewerOptions>) => void;
+  onChangeMode: (mode: ViewMode) => void;
+  onEnterFullscreen: () => void;
 }) {
   const { t } = useTranslation();
   const { palette } = useTheme();
@@ -253,6 +273,75 @@ function VideoControls({
           />
         </Pressable>
       </View>
+
+      <View style={styles.videoVrSection}>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityState={{ checked: options.vrMode }}
+          accessibilityLabel={t('viewer_vr_mode')}
+          onPress={() => {
+            hapticFeedback.light();
+            const enabled = !options.vrMode;
+            if (enabled && mode !== 'sbs') onChangeMode('sbs');
+            onChangeOptions({ vrMode: enabled });
+          }}
+          style={({ pressed }) => [
+            styles.toggleRow,
+            options.vrMode && styles.toggleRowOn,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Icon
+            name="visionpro"
+            size={17}
+            color={options.vrMode ? palette.blue : palette.labelSecondary}
+            style={styles.toggleGlyph}
+          />
+          <Text style={[styles.toggleLabel, options.vrMode && styles.toggleLabelOn]}>
+            {t('viewer_vr_mode')}
+          </Text>
+          {options.vrMode && (
+            <Icon name="checkmark" size={13} weight="semibold" color={palette.blue} />
+          )}
+        </Pressable>
+
+        {options.vrMode && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              hapticFeedback.medium();
+              onEnterFullscreen();
+            }}
+            style={({ pressed }) => [
+              styles.fullscreenRow,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Icon
+              name="arrow.up.left.and.arrow.down.right"
+              size={16}
+              weight="semibold"
+              color={palette.onAccent}
+            />
+            <Text style={styles.fullscreenLabel}>
+              {t('viewer_enter_fullscreen')}
+            </Text>
+          </Pressable>
+        )}
+
+        {options.vrMode && (
+          <Slider
+            label={t('viewer_ipd')}
+            valueLabel={`${options.ipdOffset > 0 ? '+' : ''}${options.ipdOffset} px`}
+            value={options.ipdOffset}
+            min={-24}
+            max={24}
+            step={1}
+            originValue={0}
+            onChange={(value) => onChangeOptions({ ipdOffset: value })}
+          />
+        )}
+      </View>
     </View>
   );
 }
@@ -279,6 +368,9 @@ const createStyles = (palette: Palette) =>
       ...type.callout,
       fontWeight: '600',
       color: palette.onAccent,
+    },
+    videoVrSection: {
+      marginTop: 10,
     },
   row: {
     minHeight: 44,

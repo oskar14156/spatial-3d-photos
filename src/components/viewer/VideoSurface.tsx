@@ -23,6 +23,8 @@ export type VideoStatus = {
 type Props = {
   pair: StereoPair;
   mode: ViewMode;
+  vrMode: boolean;
+  ipdOffset: number;
   onStatus: (status: VideoStatus) => void;
   handleRef: React.Ref<VideoHandle>;
 };
@@ -37,9 +39,16 @@ const SYNC_TOLERANCE = 0.04;
  * splitter copies the source audio into it — so exactly two decoders run
  * instead of three, and there is no second audio stream to drift.
  */
-export function VideoSurface({ pair, mode, onStatus, handleRef }: Props) {
+export function VideoSurface({
+  pair,
+  mode,
+  vrMode,
+  ipdOffset,
+  onStatus,
+  handleRef,
+}: Props) {
   const eyes = resolveEyes(pair);
-  const transforms = eyeTransforms(pair.alignment);
+  const transforms = eyeTransforms(pair.alignment, vrMode ? ipdOffset : 0);
   const dual = mode === 'sbs' || mode === 'cross_eye';
 
   const left = useVideoPlayer(eyes.left, (player) => {

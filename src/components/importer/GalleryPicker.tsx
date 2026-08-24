@@ -64,12 +64,10 @@ export const GalleryPicker: React.FC<Props> = ({
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState<string | null>(null);
-  const [importProgress, setImportProgress] = useState<{
-    current: number;
-    total: number;
-  } | null>(null);
 
-  const { results, scanning } = useSpatialProbe(assets);
+  // Do not decode more videos while the selected video is being split. Both
+  // operations are native and competing decoders made the import look stuck.
+  const { results, scanning } = useSpatialProbe(assets, !importing);
 
   const columns = width >= 700 ? 5 : 3;
   const tile = (width - (columns + 1) * 2) / columns;
@@ -159,8 +157,14 @@ export const GalleryPicker: React.FC<Props> = ({
           const asset = byId.get(ids[index]);
           if (!asset) continue;
 
-          setImportProgress({ current: index + 1, total: ids.length });
-          setImporting(t('import_progress', { current: index + 1, total: ids.length }));
+          setImporting(
+            asset.mediaType === 'video'
+              ? `${t('import_progress', {
+                  current: index + 1,
+                  total: ids.length,
+                })} · ${t('import_decoding_video')}`
+              : t('import_progress', { current: index + 1, total: ids.length })
+          );
 
           const outcome = await importAsset(asset, results[asset.id], t);
           if (outcome.pair) imported.push(outcome.pair);
@@ -168,7 +172,6 @@ export const GalleryPicker: React.FC<Props> = ({
         }
       } finally {
         setImporting(null);
-        setImportProgress(null);
       }
 
       setSelected(new Set());
@@ -292,27 +295,19 @@ export const GalleryPicker: React.FC<Props> = ({
         )}
 
         <View style={[styles.dock, { paddingBottom: insets.bottom + spacing.md }]}>
-          {importing && importProgress && (
+          {importing && (
             <View style={styles.importProgressPanel}>
               <View style={styles.importProgressHeader}>
                 <ActivityIndicator size="small" color={palette.blue} />
-                <Text style={styles.importProgressText} numberOfLines={1}>
+                <Text style={styles.importProgressText} numberOfLines={2}>
                   {importing}
                 </Text>
               </View>
               <IndeterminateProgress color={palette.blue} />
-              <View style={styles.importCountTrack}>
-                <View
-                  style={[
-                    styles.importCountFill,
-                    { width: `${(importProgress.current / importProgress.total) * 100}%` },
-                  ]}
-                />
-              </View>
             </View>
           )}
 
-          {spatialIds.length > 0 && (
+          {!importing && spatialIds.length > 0 && (
             <Pressable
               accessibilityRole="button"
               onPress={() => runImport(spatialIds)}
@@ -335,7 +330,7 @@ export const GalleryPicker: React.FC<Props> = ({
             </Pressable>
           )}
 
-          <Pressable
+          {!importing && <Pressable
             accessibilityRole="button"
             disabled={!selected.size || !!importing}
             onPress={() => runImport([...selected])}
@@ -357,7 +352,7 @@ export const GalleryPicker: React.FC<Props> = ({
                   : t('gallery_select_prompt')}
               </Text>
             )}
-          </Pressable>
+          </Pressable>}
         </View>
       </View>
     </Modal>
@@ -513,8 +508,9 @@ const createStyles = (palette: Palette) =>
       backgroundColor: palette.canvas,
     },
     importProgressPanel: {
-      gap: spacing.sm,
-      padding: spacing.md,
+      gap: 8,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
       borderRadius: radius.group,
       backgroundColor: palette.fill,
     },
@@ -527,17 +523,6 @@ const createStyles = (palette: Palette) =>
       ...type.footnote,
       flex: 1,
       color: palette.label,
-    },
-    importCountTrack: {
-      height: 3,
-      borderRadius: 2,
-      overflow: 'hidden',
-      backgroundColor: palette.fillSubtle,
-    },
-    importCountFill: {
-      height: 3,
-      borderRadius: 2,
-      backgroundColor: palette.blue,
     },
     primaryButton: {
       minHeight: 50,

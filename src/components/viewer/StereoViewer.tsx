@@ -49,6 +49,8 @@ export function StereoViewer({
           key={`${pair.id}-${mode}`}
           pair={pair}
           mode={mode}
+          vrMode={options.vrMode}
+          ipdOffset={options.vrMode ? options.ipdOffset : 0}
           onStatus={onVideoStatus}
           handleRef={videoRef}
         />
