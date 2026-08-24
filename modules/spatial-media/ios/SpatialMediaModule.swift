@@ -3,6 +3,7 @@ import AVFoundation
 import CoreImage
 import CoreMedia
 import CoreVideo
+import VideoToolbox
 import ImageIO
 import UniformTypeIdentifiers
 import UIKit
@@ -13,33 +14,48 @@ public final class SpatialMediaModule: Module {
 
     AsyncFunction("inspect") { (uri: String) async throws -> [String: Any] in
       let url = try Self.fileURL(uri)
+      let ext = url.pathExtension.lowercased()
 
-      if ["heic", "heif"].contains(url.pathExtension.lowercased()) {
-        if try Self.isSpatialPhoto(url) {
-          return ["kind": "spatial-photo", "spatial": true]
-        }
-        return ["kind": "image", "spatial": false]
-      }
-
-      if ["mov", "mp4", "m4v"].contains(url.pathExtension.lowercased()) {
+      // Probe by content rather than by file name. Extension gating used to
+      // skip the stereo check whenever the picker handed back a `.jpg`, and a
+      // renamed or extension-less original was never even considered.
+      if ["mov", "mp4", "m4v"].contains(ext) {
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
-          return ["kind": "video", "spatial": false]
+          return ["kind": "video", "spatial": false, "transcoded": false]
         }
-        let spatial: Bool
+
+        var spatial = false
         if #available(iOS 17.2, *) {
           spatial = try await Self.containsStereoEyeBuffers(asset: asset, track: track)
-        } else {
-          spatial = false
         }
-        return ["kind": spatial ? "spatial-video" : "video", "spatial": spatial]
+
+        // H.264 is the picker's transcode target; a genuine spatial capture is
+        // always HEVC, so this tells the caller the original was lost.
+        var transcoded = false
+        if !spatial {
+          transcoded = (try? await Self.isTranscodedVideo(track)) ?? false
+        }
+
+        return [
+          "kind": spatial ? "spatial-video" : "video",
+          "spatial": spatial,
+          "transcoded": transcoded
+        ]
       }
 
-      if UIImage(contentsOfFile: url.path) != nil {
-        return ["kind": "image", "spatial": false]
+      if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+         CGImageSourceGetCount(source) > 0 {
+        let spatial = Self.stereoPairIndices(source) != nil
+        return [
+          "kind": spatial ? "spatial-photo" : "image",
+          "spatial": spatial,
+          // A spatial photo is always HEIC; a JPEG cannot carry the pairing.
+          "transcoded": !spatial && !["heic", "heif"].contains(ext)
+        ]
       }
 
-      return ["kind": "unknown", "spatial": false]
+      return ["kind": "unknown", "spatial": false, "transcoded": false]
     }
 
     AsyncFunction("splitSpatialPhoto") { (uri: String) async throws -> [String: Any] in
@@ -67,6 +83,15 @@ public final class SpatialMediaModule: Module {
     }
   }
 
+  /// True when the track is H.264, which spatial captures never are.
+  private static func isTranscodedVideo(_ track: AVAssetTrack) async throws -> Bool {
+    let descriptions = try await track.load(.formatDescriptions)
+    return descriptions.contains { description in
+      let codec = CMFormatDescriptionGetMediaSubType(description)
+      return codec == kCMVideoCodecType_H264
+    }
+  }
+
   private static func fileURL(_ value: String) throws -> URL {
     if let url = URL(string: value), url.isFileURL {
       return url
@@ -83,6 +108,22 @@ public final class SpatialMediaModule: Module {
       .appendingPathExtension(ext)
   }
 
+  /// Output settings that make the decoder emit *both* MV-HEVC eye layers.
+  ///
+  /// This is the whole ball game for spatial video: without an explicit
+  /// `RequestedMVHEVCVideoLayerIDs`, VideoToolbox decodes only the base layer
+  /// and `CMSampleBuffer.taggedBuffers` is always nil — so every spatial clip
+  /// looked like an ordinary video and was rejected on import.
+  @available(iOS 17.2, *)
+  private static var stereoOutputSettings: [String: Any] {
+    [
+      kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+      AVVideoDecompressionPropertiesKey: [
+        kVTDecompressionPropertyKey_RequestedMVHEVCVideoLayerIDs as String: [0, 1]
+      ]
+    ]
+  }
+
   @available(iOS 17.2, *)
   private static func containsStereoEyeBuffers(
     asset: AVAsset,
@@ -91,9 +132,7 @@ public final class SpatialMediaModule: Module {
     let reader = try AVAssetReader(asset: asset)
     let output = AVAssetReaderTrackOutput(
       track: track,
-      outputSettings: [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-      ]
+      outputSettings: stereoOutputSettings
     )
     output.alwaysCopiesSampleData = false
 
@@ -118,23 +157,36 @@ public final class SpatialMediaModule: Module {
 
   // MARK: Spatial Photo
 
+  /// Indices of the two eye images inside a spatial HEIC.
+  ///
+  /// The stereo pairing is published as a *container* property — an array of
+  /// group dictionaries, each naming the left and right image index. Reading
+  /// `kCGImagePropertyGroups` per image index (as this used to) never matches,
+  /// which is why every spatial photo was reported as an ordinary image.
+  private static func stereoPairIndices(_ source: CGImageSource) -> (left: Int, right: Int)? {
+    guard
+      let properties = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
+      let groups = properties[kCGImagePropertyGroups] as? [[CFString: Any]]
+    else { return nil }
+
+    for group in groups {
+      let type = group[kCGImagePropertyGroupType] as? String
+      guard type == (kCGImagePropertyGroupTypeStereoPair as String) else { continue }
+
+      if let left = group[kCGImagePropertyGroupImageIndexLeft] as? Int,
+         let right = group[kCGImagePropertyGroupImageIndexRight] as? Int {
+        return (left, right)
+      }
+    }
+
+    return nil
+  }
+
   private static func isSpatialPhoto(_ url: URL) throws -> Bool {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
       throw SpatialMediaError.invalidImage
     }
-
-    for index in 0..<CGImageSourceGetCount(source) {
-      guard
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
-        let groups = properties[kCGImagePropertyGroups] as? [CFString: Any]
-      else { continue }
-
-      if (groups[kCGImagePropertyGroupImageIsLeftImage] as? Bool) == true ||
-         (groups[kCGImagePropertyGroupImageIsRightImage] as? Bool) == true {
-        return true
-      }
-    }
-    return false
+    return stereoPairIndices(source) != nil
   }
 
   private static func splitSpatialPhoto(_ url: URL) throws -> [String: Any] {
@@ -142,26 +194,14 @@ public final class SpatialMediaModule: Module {
       throw SpatialMediaError.invalidImage
     }
 
-    var left: CGImage?
-    var right: CGImage?
-
-    for index in 0..<CGImageSourceGetCount(source) {
-      guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else {
-        continue
-      }
-
-      let properties =
-        CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
-      let groups = properties?[kCGImagePropertyGroups] as? [CFString: Any]
-
-      if (groups?[kCGImagePropertyGroupImageIsLeftImage] as? Bool) == true {
-        left = image
-      } else if (groups?[kCGImagePropertyGroupImageIsRightImage] as? Bool) == true {
-        right = image
-      }
+    guard let indices = stereoPairIndices(source) else {
+      throw SpatialMediaError.notSpatialPhoto
     }
 
-    guard let left, let right else {
+    guard
+      let left = CGImageSourceCreateImageAtIndex(source, indices.left, nil),
+      let right = CGImageSourceCreateImageAtIndex(source, indices.right, nil)
+    else {
       throw SpatialMediaError.notSpatialPhoto
     }
 
@@ -246,9 +286,7 @@ public final class SpatialMediaModule: Module {
     let reader = try AVAssetReader(asset: asset)
     let output = AVAssetReaderTrackOutput(
       track: videoTrack,
-      outputSettings: [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-      ]
+      outputSettings: stereoOutputSettings
     )
     output.alwaysCopiesSampleData = false
 

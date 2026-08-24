@@ -35,6 +35,8 @@ export type MotionEvent = {
   forward: number;
   /** Device roll, in degrees. Zero is level. */
   rollDegrees: number;
+  /** World-tracking quality at the moment of the reading. */
+  tracking: TrackingState;
 };
 
 export type TrackingStateEvent = {

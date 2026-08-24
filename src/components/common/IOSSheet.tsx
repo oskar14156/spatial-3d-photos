@@ -2,7 +2,7 @@ import React from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { palette, spacing, type } from '../../theme';
+import { type Palette, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 
@@ -22,6 +22,8 @@ type Props = {
  */
 export function IOSSheet({ visible, title, subtitle, children, onClose }: Props) {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   return (
     <Modal
@@ -69,7 +71,8 @@ export function IOSSheet({ visible, title, subtitle, children, onClose }: Props)
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: palette.canvas,

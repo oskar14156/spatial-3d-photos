@@ -12,6 +12,13 @@ type SplitResult = {
 type InspectionResult = {
   kind: 'spatial-photo' | 'spatial-video' | 'image' | 'video' | 'unknown';
   spatial: boolean;
+  /**
+   * True when the file looks like a re-encode rather than an original — a
+   * JPEG where a spatial photo would be HEIC, or an H.264 track where a
+   * spatial capture would be HEVC. Distinguishes "this is not spatial media"
+   * from "we were handed a copy that no longer carries the spatial data".
+   */
+  transcoded: boolean;
 };
 
 type NativeSpatialMedia = {

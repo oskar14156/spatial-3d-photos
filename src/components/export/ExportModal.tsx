@@ -13,7 +13,7 @@ import * as Sharing from 'expo-sharing';
 import { SFSymbol, SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AnaglyphColorMode, ExportFormat, StereoPair } from '../../types';
-import { palette, radius, spacing, type } from '../../theme';
+import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 import SpatialMedia from '../../../modules/spatial-media';
@@ -42,6 +42,8 @@ export const ExportModal: React.FC<Props> = ({
 }) => {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const isPhoto = stereoPair.mediaType === 'photo';
   const [format, setFormat] = useState<ExportFormat>('sbs_full');
@@ -289,7 +291,8 @@ export const ExportModal: React.FC<Props> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   content: { padding: spacing.lg },
   group: {
     overflow: 'hidden',

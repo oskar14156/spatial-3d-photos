@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import type { StereoPair } from '../../types';
-import { palette, radius, spacing, type } from '../../theme';
+import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 
@@ -29,6 +29,8 @@ export const SavedProjectsList: React.FC<Props> = ({
   onDeleteProject,
 }) => {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   if (!projects.length) {
     return (
@@ -151,7 +153,8 @@ export const SavedProjectsList: React.FC<Props> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   rail: { gap: spacing.md, paddingRight: spacing.sm },
   card: { width: 164 },
   pressed: { opacity: 0.7 },

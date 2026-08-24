@@ -20,6 +20,13 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   /// Camera pose recorded at the first shot; displacement is measured from it.
   private var anchorTransform: simd_float4x4?
 
+  /// Smoothed lateral/vertical/forward displacement, in metres.
+  private var smoothedOffset = simd_float3(repeating: 0)
+
+  /// Read on the session queue, so it is cached from the main thread instead
+  /// of touching UIKit off-thread.
+  private var interfaceOrientation: UIInterfaceOrientation = .portrait
+
   let onDistanceChange = EventDispatcher()
   let onAvailabilityChange = EventDispatcher()
   let onMotionChange = EventDispatcher()
@@ -43,6 +50,7 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   override func layoutSubviews() {
     super.layoutSubviews()
     sceneView.frame = bounds
+    interfaceOrientation = window?.windowScene?.interfaceOrientation ?? .portrait
   }
 
   deinit {
@@ -87,11 +95,13 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   func setAnchor() -> Bool {
     guard let frame = sceneView.session.currentFrame else { return false }
     anchorTransform = frame.camera.transform
+    smoothedOffset = simd_float3(repeating: 0)
     return true
   }
 
   func clearAnchor() {
     anchorTransform = nil
+    smoothedOffset = simd_float3(repeating: 0)
   }
 
   // MARK: - Stills
@@ -141,13 +151,55 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   /// ARKit hands back sensor-native landscape buffers; this maps the current
   /// interface orientation onto the EXIF orientation the file needs.
   private func currentImageOrientation() -> CGImagePropertyOrientation {
-    let interface = window?.windowScene?.interfaceOrientation ?? .portrait
-    switch interface {
+    switch interfaceOrientation {
     case .landscapeLeft: return .down
     case .landscapeRight: return .up
     case .portraitUpsideDown: return .left
     default: return .right
     }
+  }
+
+  /// The direction, in ARKit camera space, that points to the top of the
+  /// screen for the current interface orientation.
+  ///
+  /// ARKit's camera frame is defined for a landscape-right device: +x runs
+  /// along the long edge and +y up the short one. Rotating the device to
+  /// portrait therefore puts screen-up along camera +x — which is why reading
+  /// `eulerAngles.z` as "roll" reported about 90° whenever the phone was held
+  /// upright, and the level check could never pass.
+  private var screenAxesInCameraSpace: (up: simd_float3, right: simd_float3) {
+    switch interfaceOrientation {
+    case .landscapeRight:
+      return (simd_float3(0, 1, 0), simd_float3(1, 0, 0))
+    case .landscapeLeft:
+      return (simd_float3(0, -1, 0), simd_float3(-1, 0, 0))
+    case .portraitUpsideDown:
+      return (simd_float3(-1, 0, 0), simd_float3(0, 1, 0))
+    default:
+      return (simd_float3(1, 0, 0), simd_float3(0, -1, 0))
+    }
+  }
+
+  /// Signed device roll in degrees, zero when the top of the screen points at
+  /// world up. Positive means the horizon tilts clockwise on screen.
+  private func rollDegrees(for camera: ARCamera) -> Double {
+    let t = camera.transform
+    let rotation = simd_float3x3(
+      simd_make_float3(t.columns.0),
+      simd_make_float3(t.columns.1),
+      simd_make_float3(t.columns.2)
+    )
+
+    let axes = screenAxesInCameraSpace
+    let screenUp = simd_normalize(rotation * axes.up)
+    let screenRight = simd_normalize(rotation * axes.right)
+    let worldUp = simd_float3(0, 1, 0)
+
+    // How far world-up has leaned onto the screen's horizontal axis.
+    return Double(atan2(
+      simd_dot(worldUp, screenRight),
+      simd_dot(worldUp, screenUp)
+    )) * 180 / .pi
   }
 
   private static func writeJPEG(
@@ -201,17 +253,17 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   }
 
   private func emitMotion(for frame: ARFrame) {
-    let euler = frame.camera.eulerAngles
-    // Roll about the view axis, in degrees, positive clockwise on screen.
-    let roll = Double(euler.z) * 180 / .pi
+    let roll = rollDegrees(for: frame.camera)
 
     guard let anchorTransform else {
+      smoothedOffset = simd_float3(repeating: 0)
       onMotionChange([
         "hasAnchor": false,
         "lateral": 0.0,
         "vertical": 0.0,
         "forward": 0.0,
-        "rollDegrees": roll
+        "rollDegrees": roll,
+        "tracking": Self.describe(frame.camera.trackingState)
       ])
       return
     }
@@ -222,13 +274,28 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     let current = frame.camera.transform.columns.3
     let local = simd_mul(simd_inverse(anchorTransform), current)
 
+    // Screen-space axes, so "lateral" still means sideways-on-screen when the
+    // phone is held in portrait.
+    let axes = screenAxesInCameraSpace
+    let localPoint = simd_make_float3(local)
+    let raw = simd_float3(
+      simd_dot(localPoint, axes.right),
+      simd_dot(localPoint, axes.up),
+      -local.z
+    )
+
+    // Light exponential smoothing: world tracking jitters by a few millimetres
+    // frame to frame, which made the readout twitch at centimetre precision.
+    smoothedOffset = smoothedOffset * 0.6 + raw * 0.4
+
     onMotionChange([
       "hasAnchor": true,
-      "lateral": Double(local.x),
-      "vertical": Double(local.y),
-      // Camera looks down -z, so negate to make "toward the subject" positive.
-      "forward": Double(-local.z),
-      "rollDegrees": roll
+      "lateral": Double(smoothedOffset.x),
+      "vertical": Double(smoothedOffset.y),
+      // Camera looks down -z, so this is positive toward the subject.
+      "forward": Double(smoothedOffset.z),
+      "rollDegrees": roll,
+      "tracking": Self.describe(frame.camera.trackingState)
     ])
   }
 

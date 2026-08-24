@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, ViewStyle } from 'react-native';
-import { SymbolView, SFSymbol } from 'expo-symbols';
+import { SFSymbol, SymbolView } from 'expo-symbols';
+import { useTheme } from '../../theme';
 import { NativeGlass } from './NativeGlass';
 import { hapticFeedback } from '../../utils/haptics';
 
@@ -9,6 +10,8 @@ type Props = {
   onPress: () => void;
   accessibilityLabel: string;
   selected?: boolean;
+  /** Buttons floating over the camera or a stereo pair stay light-on-dark. */
+  overMedia?: boolean;
   style?: ViewStyle;
 };
 
@@ -17,31 +20,38 @@ export function IOSIconButton({
   onPress,
   accessibilityLabel,
   selected = false,
+  overMedia = false,
   style,
 }: Props) {
+  const { palette } = useTheme();
+
+  const tint = selected
+    ? palette.blue
+    : overMedia
+    ? '#FFFFFF'
+    : palette.label;
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected }}
       hitSlop={8}
       onPress={() => {
         hapticFeedback.light();
         onPress();
       }}
-      style={({ pressed }) => [
-        styles.pressable,
-        pressed && styles.pressed,
-        style,
-      ]}
+      style={({ pressed }) => [styles.pressable, pressed && styles.pressed, style]}
     >
       <NativeGlass
         interactive
-        tintColor={selected ? 'rgba(10,132,255,0.32)' : undefined}
-        style={[styles.surface, selected && styles.selected]}
+        overMedia={overMedia}
+        tintColor={selected ? 'rgba(10,132,255,0.28)' : undefined}
+        style={styles.surface}
       >
         <SymbolView
           name={symbol}
-          tintColor="#FFFFFF"
+          tintColor={tint}
           size={18}
           weight="semibold"
           style={styles.symbol}
@@ -64,10 +74,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  selected: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(120,190,255,0.55)',
   },
   symbol: {
     width: 22,

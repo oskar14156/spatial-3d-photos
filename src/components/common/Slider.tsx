@@ -8,7 +8,7 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { palette, type } from '../../theme';
+import { type Palette, type, useTheme, useThemedStyles } from '../../theme';
 
 type Props = {
   label: string;
@@ -42,6 +42,8 @@ export function Slider({
   onChange,
   originValue,
 }: Props) {
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [width, setWidth] = useState(0);
   const travel = Math.max(0, width - KNOB);
 
@@ -151,7 +153,8 @@ function toFraction(value: number, min: number, max: number) {
   return Math.min(1, Math.max(0, (value - min) / (max - min)));
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   root: {
     paddingVertical: 6,
   },

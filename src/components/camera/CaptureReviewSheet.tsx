@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StereoPair, ViewMode } from '../../types';
 import { DEFAULT_ALIGNMENT } from '../../constants';
-import { palette, radius, spacing, type } from '../../theme';
+import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 import { formatMetricDistance } from '../../utils/stereobaseCalculator';
@@ -55,6 +55,8 @@ export function CaptureReviewSheet({
 }: Props) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [title, setTitle] = useState('');
   const [mode, setMode] = useState<ViewMode>('wigglegram');
@@ -187,18 +189,20 @@ export function CaptureReviewSheet({
 function Stat({
   label,
   value,
-  tone = palette.label,
+  tone,
 }: {
   label: string;
   value: string;
   tone?: string;
 }) {
+  const styles = useThemedStyles(createStyles);
+
   return (
     <View style={styles.stat}>
       <Text style={styles.statLabel} numberOfLines={2}>
         {label}
       </Text>
-      <Text style={[styles.statValue, { color: tone }]}>{value}</Text>
+      <Text style={[styles.statValue, tone ? { color: tone } : null]}>{value}</Text>
     </View>
   );
 }
@@ -206,7 +210,8 @@ function Stat({
 function noop() {}
 const noopRef = { current: null };
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   flex: { flex: 1 },
   content: {
     padding: spacing.lg,

@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import type { StereoAlignment } from '../../types';
 import { DEFAULT_ALIGNMENT } from '../../constants';
-import { palette, radius, spacing, type } from '../../theme';
+import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 import { Slider } from '../common/Slider';
@@ -19,6 +19,8 @@ type Props = {
  */
 export function AlignmentPanel({ alignment, onChange }: Props) {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const set = <K extends keyof StereoAlignment>(
     key: K,
@@ -116,7 +118,8 @@ function signed(value: number, unit: string) {
   return `${value > 0 ? '+' : ''}${value} ${unit}`;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   panel: {
     borderRadius: radius.panel,
     padding: spacing.lg,

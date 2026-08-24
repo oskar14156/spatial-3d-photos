@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import type { AnaglyphColorMode, StereoPair, ViewMode, ViewerOptions } from '../../types';
-import { palette, radius, type } from '../../theme';
+import { type Palette, radius, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 import { Segmented } from '../common/Segmented';
@@ -34,6 +34,8 @@ export function ViewerControls({
   videoRef,
 }: Props) {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   if (pair.mediaType === 'video') {
     return (
@@ -153,6 +155,8 @@ function VideoControls({
   videoRef: React.RefObject<VideoHandle | null>;
 }) {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const duration = status.duration > 0 ? status.duration : 1;
 
   return (
@@ -233,7 +237,8 @@ function formatTime(seconds: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   row: {
     minHeight: 44,
     flexDirection: 'row',

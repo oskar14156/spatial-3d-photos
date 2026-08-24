@@ -10,7 +10,7 @@ import {
 import { SFSymbol, SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LanguageCode } from '../../types';
-import { palette, radius, spacing, type } from '../../theme';
+import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { setLanguage } from '../../i18n/translations';
 import { useTranslation } from '../../i18n/useTranslation';
 import { saveLanguagePreference } from '../../utils/storage';
@@ -26,6 +26,8 @@ type Props = {
 export const SettingsModal: React.FC<Props> = ({ visible, onClose }) => {
   const { t, language } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const changeLanguage = async (next: LanguageCode) => {
     if (next === language) return;
@@ -101,6 +103,7 @@ export const SettingsModal: React.FC<Props> = ({ visible, onClose }) => {
 };
 
 function Divider() {
+  const styles = useThemedStyles(createStyles);
   return <View style={styles.divider} />;
 }
 
@@ -113,6 +116,9 @@ function InfoRow({
   title: string;
   value: string;
 }) {
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   return (
     <View style={styles.row} accessible accessibilityLabel={`${title}, ${value}`}>
       <SymbolView name={symbol} size={18} tintColor={palette.blue} style={styles.glyph} />
@@ -133,6 +139,9 @@ function ActionRow({
   selected?: boolean;
   onPress: () => void;
 }) {
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   return (
     <Pressable
       accessibilityRole={selected === undefined ? 'button' : 'radio'}
@@ -165,7 +174,8 @@ function ActionRow({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   content: { padding: spacing.lg },
   groupTitle: {
     ...type.eyebrow,

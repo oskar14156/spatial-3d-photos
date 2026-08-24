@@ -1,7 +1,7 @@
 import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import type { AnaglyphColorMode, StereoPair } from '../../types';
-import { palette, type } from '../../theme';
+import { mediaPalette as palette, type } from '../../theme';
 import { eyeTransforms, resolveEyes } from './eyeGeometry';
 
 /**

@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { palette, radius, type } from '../../theme';
+import { mediaPalette as palette, radius, type } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { formatMetricDistance } from '../../utils/stereobaseCalculator';
 import type { Guidance } from '../../utils/captureGuidance';
@@ -48,6 +48,8 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
       ? t('guide_ready')
       : guidance.status === 'overshoot'
       ? t('guide_overshoot')
+      : guidance.status === 'unreliable'
+      ? t('guide_unreliable')
       : guidance.status === 'unlevel' || guidance.status === 'drifted'
       ? t('guide_hold_level')
       : `${t(
@@ -81,6 +83,10 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
         <View style={styles.targetWindow} />
       </View>
 
+      {guidance.status === 'unreliable' && (
+        <Text style={styles.hint}>{t('guide_unreliable_hint')}</Text>
+      )}
+
       <View style={styles.readoutRow}>
         <View>
           <Text style={styles.readoutLabel}>{t('guide_moved')}</Text>
@@ -108,6 +114,8 @@ function toneFor(guidance: Guidance) {
     case 'unlevel':
     case 'drifted':
       return palette.orange;
+    case 'unreliable':
+      return palette.red;
     default:
       return palette.label;
   }
@@ -123,6 +131,8 @@ function iconFor(guidance: Guidance) {
       return 'level.fill' as const;
     case 'drifted':
       return 'arrow.up.and.down.circle.fill' as const;
+    case 'unreliable':
+      return 'exclamationmark.triangle.fill' as const;
     default:
       return 'arrow.right.circle.fill' as const;
   }

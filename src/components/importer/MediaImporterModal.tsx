@@ -13,7 +13,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { SFSymbol, SymbolView } from 'expo-symbols';
 import type { StereoPair } from '../../types';
 import { DEFAULT_ALIGNMENT } from '../../constants';
-import { palette, radius, spacing, type } from '../../theme';
+import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 import SpatialMedia from '../../../modules/spatial-media';
@@ -43,6 +43,8 @@ export const MediaImporterModal: React.FC<Props> = ({
   onClose,
 }) => {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
 
@@ -83,11 +85,17 @@ export const MediaImporterModal: React.FC<Props> = ({
 
     if (wantOriginal && asset.assetId) {
       try {
-        const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
-        if (info.localUri) picked.uri = info.localUri;
+        // Reading the original needs Photos access in its own right; the
+        // picker's own permission does not cover it, and without this the
+        // lookup fails silently and we fall back to the stripped copy.
+        const library = await MediaLibrary.requestPermissionsAsync();
+        if (library.granted) {
+          const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
+          if (info.localUri) picked.uri = info.localUri;
+        }
       } catch {
-        // Fall back to the picker copy; the inspector will simply report it
-        // as an ordinary image or video.
+        // Keep the picker copy; `inspect` reports it as transcoded and the
+        // caller explains what to do about it.
       }
     }
 
@@ -145,7 +153,13 @@ export const MediaImporterModal: React.FC<Props> = ({
         return;
       }
 
-      Alert.alert(t('import_not_spatial_title'), t('import_not_spatial_body'));
+      // Separate "you picked an ordinary photo" from "iOS gave us a copy with
+      // the spatial data already stripped" — the fixes are completely different.
+      if (inspection.transcoded) {
+        Alert.alert(t('import_transcoded_title'), t('import_transcoded_body'));
+      } else {
+        Alert.alert(t('import_not_spatial_title'), t('import_not_spatial_body'));
+      }
     } catch (error) {
       Alert.alert(
         t('import_failed'),
@@ -282,6 +296,9 @@ function ImportRow({
   detail: string;
   onPress: () => void;
 }) {
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -308,7 +325,8 @@ function ImportRow({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   content: { padding: spacing.lg },
   group: {
     borderRadius: radius.group,

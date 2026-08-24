@@ -11,7 +11,14 @@ import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StereoPair, ViewMode, ViewerOptions } from '../types';
 import { DEMO_STEREO_PAIRS } from '../constants';
-import { palette, radius, spacing, type } from '../theme';
+import {
+  type Palette,
+  radius,
+  spacing,
+  type,
+  useTheme,
+  useThemedStyles,
+} from '../theme';
 import { useTranslation } from '../i18n/useTranslation';
 import { setLanguage } from '../i18n/translations';
 import {
@@ -21,11 +28,12 @@ import {
   saveStereoPair,
   updateStereoPairAlignment,
 } from '../utils/storage';
+import { formatMetricDistance } from '../utils/stereobaseCalculator';
 import { hapticFeedback } from '../utils/haptics';
 import { IOSIconButton } from '../components/common/IOSIconButton';
 import { NativeGlass } from '../components/common/NativeGlass';
+import { TabBar, type TabId } from '../components/common/TabBar';
 import { ChaChaCamera } from '../components/camera/ChaChaCamera';
-import { SavedProjectsList } from '../components/gallery/SavedProjectsList';
 import { MediaImporterModal } from '../components/importer/MediaImporterModal';
 import { ExportModal } from '../components/export/ExportModal';
 import { SettingsModal } from '../components/settings/SettingsModal';
@@ -33,6 +41,7 @@ import { AlignmentPanel } from '../components/viewer/AlignmentPanel';
 import { StereoViewer, isModeSupported } from '../components/viewer/StereoViewer';
 import { ViewerControls } from '../components/viewer/ViewerControls';
 import type { VideoHandle, VideoStatus } from '../components/viewer/VideoSurface';
+import { LibraryScreen } from './LibraryScreen';
 
 const MODES: ViewMode[] = [
   'wigglegram',
@@ -58,19 +67,21 @@ const IDLE_VIDEO_STATUS: VideoStatus = {
 };
 
 /**
- * The single screen of the app.
+ * App shell: two tabs over one shared library, plus the capture takeover.
  *
- * Layout contract: the viewer owns one fixed frame, and *nothing* else draws
- * inside it. Mode controls, alignment and the library all stack below it in
- * normal document flow, with only the capture dock floating. That is what
- * keeps the chrome from piling up on the image.
+ * Layout contract for the studio tab: the viewer owns one frame, and *nothing*
+ * else draws inside it. Mode controls, metadata and alignment stack below it
+ * in normal flow; only the tab bar floats.
  */
 export const StudioScreen: React.FC = () => {
   const { t } = useTranslation();
+  const { palette } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
 
+  const [tab, setTab] = useState<TabId>('studio');
   const [pairs, setPairs] = useState<StereoPair[]>(DEMO_STEREO_PAIRS);
   const [currentId, setCurrentId] = useState<string>(DEMO_STEREO_PAIRS[0].id);
   const [mode, setMode] = useState<ViewMode>('wigglegram');
@@ -122,15 +133,18 @@ export const StudioScreen: React.FC = () => {
 
   const viewerHeight = useMemo(() => {
     if (landscape) {
-      return Math.max(240, height - insets.top - insets.bottom - 210);
+      return Math.max(240, height - insets.top - insets.bottom - 200);
     }
-    return Math.min(width - spacing.lg * 2, 430) * 0.78;
+    // Leaves room for the header, the mode rail, the controls and the tab bar
+    // without the page needing to scroll on a standard phone.
+    return Math.min((width - spacing.lg * 2) * 0.84, height * 0.42);
   }, [height, insets.bottom, insets.top, landscape, width]);
 
   const addPair = useCallback(async (pair: StereoPair) => {
     await saveStereoPair(pair);
     setPairs((prev) => [pair, ...prev.filter((item) => item.id !== pair.id)]);
     setCurrentId(pair.id);
+    setTab('studio');
   }, []);
 
   const changeAlignment = useCallback(
@@ -174,184 +188,186 @@ export const StudioScreen: React.FC = () => {
 
   return (
     <View style={styles.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={[
-          styles.content,
-          {
-            paddingTop: insets.top + spacing.sm,
-            paddingBottom: insets.bottom + 118,
-          },
-        ]}
-      >
-        <View style={styles.nav}>
-          <IOSIconButton
-            symbol="gearshape.fill"
-            accessibilityLabel={t('action_settings')}
-            onPress={() => setShowSettings(true)}
-          />
-          <View style={styles.navRight}>
-            <IOSIconButton
-              symbol="square.and.arrow.down.fill"
-              accessibilityLabel={t('action_import')}
-              onPress={() => setShowImporter(true)}
-            />
-            <IOSIconButton
-              symbol="square.and.arrow.up.fill"
-              accessibilityLabel={t('action_export')}
-              onPress={() => setShowExporter(true)}
-            />
-          </View>
-        </View>
-
-        <View style={styles.titleBlock}>
-          <Text style={styles.eyebrow}>
-            {current.mediaType === 'video'
-              ? t('studio_eyebrow_video')
-              : t('studio_eyebrow_photo')}
-          </Text>
-          <Text style={styles.title} numberOfLines={2}>
-            {current.title || t('studio_untitled')}
-          </Text>
-        </View>
-
+      {tab === 'library' ? (
+        <LibraryScreen
+          projects={pairs}
+          currentPairId={current.id}
+          onOpen={(pair) => {
+            setCurrentId(pair.id);
+            setTab('studio');
+          }}
+          onDelete={removePair}
+          onImport={() => setShowImporter(true)}
+        />
+      ) : (
         <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.modeRail}
+          showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingTop: insets.top + spacing.sm,
+              paddingBottom: insets.bottom + 110,
+            },
+          ]}
         >
-          {availableModes.map((item) => {
-            const active = mode === item;
-            return (
-              <Pressable
-                key={item}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                onPress={() => {
-                  hapticFeedback.selection();
-                  setMode(item);
-                }}
-                style={({ pressed }) => [
-                  styles.modeChip,
-                  active && styles.modeChipActive,
-                  pressed && !active && styles.modeChipPressed,
-                ]}
-              >
-                <Text style={[styles.modeText, active && styles.modeTextActive]}>
-                  {t(`view_mode_${item}` as never)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        <View style={[styles.viewerFrame, { height: viewerHeight }]}>
-          <StereoViewer
-            pair={current}
-            mode={mode}
-            options={options}
-            onVideoStatus={setVideoStatus}
-            videoRef={videoRef}
-          />
-
-          <View pointerEvents="box-none" style={styles.viewerOverlay}>
-            <NativeGlass style={styles.viewerBadge}>
-              <Text style={styles.viewerBadgeText}>
-                {current.mediaType === 'video' ? t('badge_video') : t('badge_photo')}
+          <View style={styles.nav}>
+            <View style={styles.navTitle}>
+              <Text style={styles.eyebrow}>
+                {current.mediaType === 'video'
+                  ? t('studio_eyebrow_video')
+                  : t('studio_eyebrow_photo')}
               </Text>
-            </NativeGlass>
+              <Text style={styles.title} numberOfLines={1}>
+                {current.title || t('studio_untitled')}
+              </Text>
+            </View>
 
-            <IOSIconButton
-              symbol="slider.horizontal.3"
-              accessibilityLabel={t('action_adjust')}
-              selected={showAlignment}
-              onPress={() => setShowAlignment((value) => !value)}
+            <View style={styles.navActions}>
+              <IOSIconButton
+                symbol="square.and.arrow.up"
+                accessibilityLabel={t('action_export')}
+                onPress={() => setShowExporter(true)}
+              />
+              <IOSIconButton
+                symbol="gearshape"
+                accessibilityLabel={t('action_settings')}
+                onPress={() => setShowSettings(true)}
+              />
+            </View>
+          </View>
+
+          <View style={[styles.viewerFrame, { height: viewerHeight }]}>
+            <StereoViewer
+              pair={current}
+              mode={mode}
+              options={options}
+              onVideoStatus={setVideoStatus}
+              videoRef={videoRef}
+            />
+
+            <View pointerEvents="box-none" style={styles.viewerOverlay}>
+              <NativeGlass overMedia style={styles.viewerBadge}>
+                <Text style={styles.viewerBadgeText}>
+                  {current.mediaType === 'video'
+                    ? t('badge_video')
+                    : t('badge_photo')}
+                </Text>
+              </NativeGlass>
+
+              <IOSIconButton
+                symbol="slider.horizontal.3"
+                overMedia
+                accessibilityLabel={t('action_adjust')}
+                selected={showAlignment}
+                onPress={() => setShowAlignment((value) => !value)}
+              />
+            </View>
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.modeRail}
+          >
+            {availableModes.map((item) => {
+              const active = mode === item;
+              return (
+                <Pressable
+                  key={item}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => {
+                    hapticFeedback.selection();
+                    setMode(item);
+                  }}
+                  style={({ pressed }) => [
+                    styles.modeChip,
+                    active && styles.modeChipActive,
+                    pressed && !active && styles.modeChipPressed,
+                  ]}
+                >
+                  <Text
+                    style={[styles.modeText, active && styles.modeTextActive]}
+                  >
+                    {t(`view_mode_${item}` as never)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.controlsSlot}>
+            <ViewerControls
+              pair={current}
+              mode={mode}
+              options={options}
+              onChangeOptions={(patch) =>
+                setOptions((prev) => ({ ...prev, ...patch }))
+              }
+              videoStatus={videoStatus}
+              videoRef={videoRef}
             />
           </View>
-        </View>
 
-        <View style={styles.controlsSlot}>
-          <ViewerControls
-            pair={current}
-            mode={mode}
-            options={options}
-            onChangeOptions={(patch) =>
-              setOptions((prev) => ({ ...prev, ...patch }))
-            }
-            videoStatus={videoStatus}
-            videoRef={videoRef}
-          />
-        </View>
+          {showAlignment && (
+            <View style={styles.section}>
+              <AlignmentPanel
+                alignment={current.alignment}
+                onChange={changeAlignment}
+              />
+            </View>
+          )}
 
-        {showAlignment && (
-          <View style={styles.section}>
-            <AlignmentPanel
-              alignment={current.alignment}
-              onChange={changeAlignment}
+          <View style={styles.metaCard}>
+            <MetaRow
+              label={t('meta_baseline')}
+              value={
+                current.baselineDistanceMeters
+                  ? formatMetricDistance(current.baselineDistanceMeters)
+                  : t('meta_unknown')
+              }
             />
+            <View style={styles.metaDivider} />
+            <MetaRow
+              label={t('meta_distance')}
+              value={
+                current.subjectDistanceMeters
+                  ? formatMetricDistance(current.subjectDistanceMeters)
+                  : t('meta_unknown')
+              }
+            />
+            <View style={styles.metaDivider} />
+            <MetaRow label={t('meta_source')} value={sourceLabel(current, t)} />
           </View>
-        )}
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t('library_title')}</Text>
-            <Text style={styles.sectionMeta}>
-              {pairs.length === 1
-                ? t('library_count_one')
-                : t('library_count_other', { count: pairs.length })}
-            </Text>
-          </View>
-          <SavedProjectsList
-            projects={pairs}
-            currentPairId={current.id}
-            onSelectProject={(pair) => setCurrentId(pair.id)}
-            onDeleteProject={removePair}
-          />
-        </View>
-      </ScrollView>
-
-      <View
-        pointerEvents="box-none"
-        style={[styles.dockWrap, { bottom: insets.bottom + 10 }]}
-      >
-        <NativeGlass interactive style={styles.dock}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t('capture_stereo')}
-            onPress={() => {
-              hapticFeedback.medium();
-              setShowCamera(true);
-            }}
-            style={({ pressed }) => [styles.captureButton, pressed && styles.pressed]}
+            onPress={() => setTab('library')}
+            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
           >
+            <Text style={styles.linkText}>{t('studio_open_in_library')}</Text>
             <SymbolView
-              name="camera.fill"
-              tintColor={palette.label}
-              size={19}
+              name="chevron.right"
+              size={12}
               weight="semibold"
-              style={styles.captureGlyph}
-            />
-            <Text style={styles.captureText}>{t('capture_stereo')}</Text>
-          </Pressable>
-
-          <View style={styles.dockDivider} />
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('action_import')}
-            onPress={() => setShowImporter(true)}
-            style={({ pressed }) => [styles.dockIcon, pressed && styles.pressed]}
-          >
-            <SymbolView
-              name="photo.on.rectangle.angled"
-              tintColor={palette.label}
-              size={19}
-              style={styles.dockGlyph}
+              tintColor={palette.blue}
+              style={styles.linkGlyph}
             />
           </Pressable>
-        </NativeGlass>
-      </View>
+        </ScrollView>
+      )}
+
+      <TabBar
+        active={tab}
+        onChange={setTab}
+        onCapture={() => setShowCamera(true)}
+        captureLabel={t('capture_stereo')}
+        tabs={[
+          { id: 'studio', label: t('tab_studio_short'), symbol: 'cube.transparent' },
+          { id: 'library', label: t('tab_library_short'), symbol: 'square.grid.2x2' },
+        ]}
+      />
 
       <MediaImporterModal
         visible={showImporter}
@@ -372,104 +388,128 @@ export const StudioScreen: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: palette.canvas },
-  content: { paddingHorizontal: spacing.lg },
+function MetaRow({ label, value }: { label: string; value: string }) {
+  const styles = useThemedStyles(createStyles);
+  return (
+    <View style={styles.metaRow}>
+      <Text style={styles.metaLabel}>{label}</Text>
+      <Text style={styles.metaValue} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
 
-  nav: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  navRight: { flexDirection: 'row', gap: spacing.sm },
+function sourceLabel(pair: StereoPair, t: (key: never) => string): string {
+  const translate = t as unknown as (key: string) => string;
+  switch (pair.sourceType) {
+    case 'camera_chacha':
+      return translate('source_camera');
+    case 'imported_spatial':
+      return translate('source_imported_spatial');
+    case 'imported_sbs':
+      return translate('source_imported_sbs');
+    case 'imported_dual':
+      return translate('source_imported_dual');
+    default:
+      return translate('source_built_in');
+  }
+}
 
-  titleBlock: { marginTop: spacing.xl, marginBottom: spacing.lg },
-  eyebrow: { ...type.eyebrow, color: palette.labelTertiary },
-  title: { ...type.largeTitle, marginTop: 5, color: palette.label },
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: palette.canvas },
+    content: { paddingHorizontal: spacing.lg },
 
-  modeRail: { gap: spacing.sm, paddingBottom: spacing.md },
-  modeChip: {
-    height: 34,
-    borderRadius: radius.chip,
-    paddingHorizontal: 14,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.07)',
-  },
-  modeChipActive: { backgroundColor: palette.label },
-  modeChipPressed: { backgroundColor: 'rgba(255,255,255,0.14)' },
-  modeText: { ...type.footnote, fontWeight: '600', color: palette.labelSecondary },
-  modeTextActive: { color: palette.canvas },
+    nav: {
+      minHeight: 56,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      marginBottom: spacing.lg,
+    },
+    navTitle: { flex: 1 },
+    navActions: { flexDirection: 'row', gap: spacing.sm },
+    eyebrow: { ...type.eyebrow, color: palette.labelTertiary },
+    title: { ...type.title2, fontSize: 26, marginTop: 3, color: palette.label },
 
-  viewerFrame: {
-    width: '100%',
-    borderRadius: radius.viewer,
-    overflow: 'hidden',
-    backgroundColor: '#050505',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: palette.separator,
-  },
-  viewerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  viewerBadge: {
-    height: 24,
-    paddingHorizontal: 9,
-    borderRadius: 12,
-    justifyContent: 'center',
-  },
-  viewerBadgeText: { ...type.eyebrow, fontSize: 9, color: palette.label },
+    viewerFrame: {
+      width: '100%',
+      borderRadius: radius.viewer,
+      overflow: 'hidden',
+      // Media stays on black in both appearances so depth reads correctly.
+      backgroundColor: '#050505',
+    },
+    viewerOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      padding: 10,
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+    },
+    viewerBadge: {
+      height: 24,
+      paddingHorizontal: 9,
+      borderRadius: 12,
+      justifyContent: 'center',
+    },
+    viewerBadgeText: { ...type.eyebrow, fontSize: 9, color: '#FFFFFF' },
 
-  controlsSlot: { minHeight: 44, marginTop: spacing.md },
+    modeRail: { gap: spacing.sm, paddingVertical: spacing.md },
+    modeChip: {
+      height: 34,
+      borderRadius: radius.chip,
+      paddingHorizontal: 14,
+      justifyContent: 'center',
+      backgroundColor: palette.fillSubtler,
+    },
+    modeChipActive: { backgroundColor: palette.inverted },
+    modeChipPressed: { backgroundColor: palette.fillSubtle },
+    modeText: {
+      ...type.footnote,
+      fontWeight: '600',
+      color: palette.labelSecondary,
+    },
+    modeTextActive: { color: palette.onInverted },
 
-  section: { marginTop: spacing.xxl },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  sectionTitle: { ...type.title2, color: palette.label },
-  sectionMeta: { ...type.caption, color: palette.labelTertiary },
+    controlsSlot: { minHeight: 44 },
 
-  dockWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
-  dock: {
-    height: 64,
-    width: 262,
-    borderRadius: 32,
-    padding: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  captureButton: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: palette.blue,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  captureGlyph: { width: 22, height: 22 },
-  captureText: { ...type.callout, fontWeight: '700', color: palette.label },
-  dockDivider: {
-    height: 28,
-    width: StyleSheet.hairlineWidth,
-    backgroundColor: palette.separator,
-    marginHorizontal: 5,
-  },
-  dockIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dockGlyph: { width: 22, height: 22 },
-  pressed: { opacity: 0.72 },
-});
+    section: { marginTop: spacing.xl },
+
+    metaCard: {
+      marginTop: spacing.xl,
+      borderRadius: radius.group,
+      paddingHorizontal: spacing.lg,
+      backgroundColor: palette.fill,
+    },
+    metaRow: {
+      minHeight: 46,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.md,
+    },
+    metaLabel: { ...type.callout, color: palette.labelSecondary },
+    metaValue: {
+      ...type.callout,
+      fontWeight: '600',
+      color: palette.label,
+      fontVariant: ['tabular-nums'],
+    },
+    metaDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: palette.separator,
+    },
+
+    linkRow: {
+      minHeight: 44,
+      marginTop: spacing.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 5,
+    },
+    linkText: { ...type.callout, fontWeight: '600', color: palette.blue },
+    linkGlyph: { width: 14, height: 14 },
+    pressed: { opacity: 0.7 },
+  });

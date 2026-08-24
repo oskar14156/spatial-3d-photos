@@ -22,7 +22,7 @@ import {
   type TrackingState,
 } from '../../../modules/spatial-capture';
 import type { StereoPair, SubjectPresetId } from '../../types';
-import { palette, radius, type } from '../../theme';
+import { mediaPalette as palette, radius, type } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
 import {
@@ -52,6 +52,7 @@ const IDLE_MOTION: MotionEvent = {
   vertical: 0,
   forward: 0,
   rollDegrees: 0,
+  tracking: 'initializing',
 };
 
 /**

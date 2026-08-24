@@ -6,7 +6,9 @@ export type GuidanceStatus =
   | 'ready'
   | 'overshoot'
   | 'unlevel'
-  | 'drifted';
+  | 'drifted'
+  /** World tracking lost confidence; the displacement cannot be trusted. */
+  | 'unreliable';
 
 export type Guidance = {
   status: GuidanceStatus;
@@ -22,8 +24,12 @@ export type Guidance = {
   canShoot: boolean;
 };
 
-/** Roll beyond this many degrees noticeably tilts the stereo window. */
-export const LEVEL_TOLERANCE_DEGREES = 1.5;
+/**
+ * Roll beyond this many degrees noticeably tilts the stereo window. Handheld
+ * shooting cannot realistically hold better than a couple of degrees, and the
+ * residual tilt is correctable afterwards in the alignment panel.
+ */
+export const LEVEL_TOLERANCE_DEGREES = 2.5;
 
 /**
  * Vertical drift the eyes can still fuse. Beyond roughly this fraction of the
@@ -32,9 +38,14 @@ export const LEVEL_TOLERANCE_DEGREES = 1.5;
 const VERTICAL_DRIFT_RATIO = 0.35;
 const MIN_VERTICAL_TOLERANCE = 0.015;
 
-/** Positional tolerance: 10% of the baseline, never tighter than 5 mm. */
+/**
+ * Positional tolerance: 12% of the baseline, never tighter than 8 mm.
+ *
+ * The floor matters — ARKit's own positional noise is a few millimetres, so a
+ * tighter window is a target the photographer can never reliably land in.
+ */
 export function baselineTolerance(baselineMeters: number): number {
-  return Math.max(0.005, baselineMeters * 0.1);
+  return Math.max(0.008, baselineMeters * 0.12);
 }
 
 /**
@@ -65,6 +76,17 @@ export function evaluateGuidance(
 
   if (!motion.hasAnchor) {
     return { ...base, status: 'waiting', canShoot: false };
+  }
+
+  // Relocalising or feature-starved tracking makes the displacement figure
+  // meaningless; say so rather than quietly reporting a wrong number.
+  if (
+    motion.tracking === 'insufficientFeatures' ||
+    motion.tracking === 'relocalizing' ||
+    motion.tracking === 'unavailable' ||
+    motion.tracking === 'failed'
+  ) {
+    return { ...base, status: 'unreliable', canShoot: false };
   }
 
   const withinDistance = Math.abs(remaining) <= tolerance;

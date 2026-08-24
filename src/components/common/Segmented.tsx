@@ -5,7 +5,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { palette, spring, type } from '../../theme';
+import { type Palette, spring, type, useThemedStyles } from '../../theme';
 import { hapticFeedback } from '../../utils/haptics';
 
 export type SegmentedItem<T extends string> = {
@@ -33,6 +33,7 @@ export function Segmented<T extends string>({
   onChange,
   accessibilityLabel,
 }: Props<T>) {
+  const styles = useThemedStyles(createStyles);
   const [trackWidth, setTrackWidth] = useState(0);
   const offset = useSharedValue(0);
 
@@ -90,7 +91,8 @@ export function Segmented<T extends string>({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: Palette) =>
+  StyleSheet.create({
   track: {
     height: 34,
     flexDirection: 'row',
