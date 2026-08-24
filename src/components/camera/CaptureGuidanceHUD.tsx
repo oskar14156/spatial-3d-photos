@@ -12,6 +12,8 @@ type Props = {
   targetBaseline: number;
   /** Null while ARKit is still deciding whether it can track. */
   trackingOk: boolean;
+  foregroundColor?: string;
+  secondaryColor?: string;
 };
 
 /**
@@ -21,10 +23,18 @@ type Props = {
  * the required stereo base, so the photographer walks until the marker lands
  * in the target window instead of guessing at "about two steps".
  */
-export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Props) {
+export function CaptureGuidanceHUD({
+  guidance,
+  targetBaseline,
+  trackingOk,
+  foregroundColor,
+  secondaryColor,
+}: Props) {
   const { t } = useTranslation();
   const { palette } = useTheme();
   const styles = useThemedStyles(createStyles);
+  const foreground = foregroundColor ?? palette.label;
+  const secondary = secondaryColor ?? palette.labelSecondary;
 
   if (!trackingOk) {
     return (
@@ -36,14 +46,18 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
             color={palette.orange}
             style={styles.glyph}
           />
-          <Text style={styles.headline}>{t('guide_tracking_unavailable')}</Text>
+          <Text style={[styles.headline, { color: foreground }]}>
+            {t('guide_tracking_unavailable')}
+          </Text>
         </View>
-        <Text style={styles.hint}>{t('guide_tracking_hint')}</Text>
+        <Text style={[styles.hint, { color: secondary }]}>
+          {t('guide_tracking_hint')}
+        </Text>
       </NativeGlass>
     );
   }
 
-  const tone = toneFor(guidance, palette);
+  const tone = toneFor(guidance, palette, foreground);
 
   const headline =
     guidance.status === 'ready'
@@ -86,20 +100,26 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
       </View>
 
       {guidance.status === 'unreliable' && (
-        <Text style={styles.hint}>{t('guide_unreliable_hint')}</Text>
+        <Text style={[styles.hint, { color: secondary }]}>
+          {t('guide_unreliable_hint')}
+        </Text>
       )}
 
       <View style={styles.readoutRow}>
         <View>
-          <Text style={styles.readoutLabel}>{t('guide_moved')}</Text>
-          <Text style={styles.readoutValue}>
+          <Text style={[styles.readoutLabel, { color: secondary }]}>
+            {t('guide_moved')}
+          </Text>
+          <Text style={[styles.readoutValue, { color: foreground }]}>
             {formatMetricDistance(Math.abs(guidance.lateral))}
           </Text>
         </View>
 
         <View style={styles.readoutRight}>
-          <Text style={styles.readoutLabel}>{t('guide_target')}</Text>
-          <Text style={styles.readoutValue}>
+          <Text style={[styles.readoutLabel, { color: secondary }]}>
+            {t('guide_target')}
+          </Text>
+          <Text style={[styles.readoutValue, { color: foreground }]}>
             {formatMetricDistance(targetBaseline)}
           </Text>
         </View>
@@ -108,7 +128,7 @@ export function CaptureGuidanceHUD({ guidance, targetBaseline, trackingOk }: Pro
   );
 }
 
-function toneFor(guidance: Guidance, palette: Palette) {
+function toneFor(guidance: Guidance, palette: Palette, foreground: string) {
   switch (guidance.status) {
     case 'ready':
       return palette.green;
@@ -119,7 +139,7 @@ function toneFor(guidance: Guidance, palette: Palette) {
     case 'unreliable':
       return palette.red;
     default:
-      return palette.label;
+      return foreground;
   }
 }
 

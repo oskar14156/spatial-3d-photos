@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,7 +12,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Camera } from 'expo-camera';
+import { Camera, CameraView } from 'expo-camera';
 import { Icon } from '../common/Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -57,14 +58,19 @@ const IDLE_MOTION: MotionEvent = {
   tracking: 'initializing',
 };
 
+const ANDROID_MANUAL_MOTION: MotionEvent = {
+  ...IDLE_MOTION,
+  hasAnchor: true,
+  tracking: 'unavailable',
+};
+
 /**
  * Guided two-shot ("Cha-Cha") stereo capture.
  *
- * The viewfinder is an ARKit session rather than a plain camera preview,
- * because world tracking is what makes the promise of this screen real: it
- * measures the sideways distance actually travelled between the two shots
- * instead of asking the photographer to pace it out. LiDAR subject distance
- * and the horizon come from the same session.
+ * On iOS the viewfinder is an ARKit session because world tracking measures
+ * the sideways distance actually travelled between the two shots. Android
+ * uses a stable plain-camera fallback; it keeps capture usable on devices
+ * without the custom ARKit view.
  */
 export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) => {
   const { t, language } = useTranslation();
@@ -73,8 +79,10 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
+  const isAndroid = Platform.OS === 'android';
 
   const captureRef = useRef<SpatialCaptureViewRef | null>(null);
+  const androidCameraRef = useRef<CameraView | null>(null);
 
   const [permission, setPermission] = useState<boolean | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
@@ -86,12 +94,20 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   const [distanceMeters, setDistanceMeters] = useState(2);
   const [depthConfidence, setDepthConfidence] = useState<DepthConfidence>('low');
   const [availability, setAvailability] = useState<AvailabilityEvent>({
-    worldTracking: true,
+    worldTracking: !isAndroid,
     lidar: false,
   });
-  const [trackingState, setTrackingState] = useState<TrackingState>('initializing');
-  const [motion, setMotion] = useState<MotionEvent>(IDLE_MOTION);
-  const [autoShutter, setAutoShutter] = useState(true);
+  const [trackingState, setTrackingState] = useState<TrackingState>(
+    isAndroid ? 'unavailable' : 'initializing'
+  );
+  const [motion, setMotion] = useState<MotionEvent>(
+    isAndroid ? ANDROID_MANUAL_MOTION : IDLE_MOTION
+  );
+  const [cameraReady, setCameraReady] = useState(!isAndroid);
+  const [cameraLuminance, setCameraLuminance] = useState<number | null>(null);
+  // Manual capture is the safe default. Auto capture is opt-in via the
+  // clearly labelled AUTO AN/AUS control and never surprises a manual press.
+  const [autoShutter, setAutoShutter] = useState(false);
   const [manualDistance, setManualDistance] = useState(false);
   const [manualDistanceText, setManualDistanceText] = useState('2');
 
@@ -127,20 +143,27 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   /* ---------------------------------------------------------------------- */
 
   const capture = useCallback(async () => {
-    const view = captureRef.current;
-    if (!view || busy) return;
+    const spatialView = captureRef.current;
+    if (
+      busy ||
+      (isAndroid ? !androidCameraRef.current || !cameraReady : !spatialView)
+    ) {
+      return;
+    }
 
     setBusy(true);
     try {
       hapticFeedback.heavy();
-      const uri = await view.capturePhoto();
+      const uri = isAndroid
+        ? (await androidCameraRef.current!.takePictureAsync({ quality: 0.95 })).uri
+        : await spatialView!.capturePhoto();
 
       if (step === 1) {
         // Zero the displacement origin the instant the first frame is taken,
         // so the guidance measures from exactly where the shot was made.
-        await view.setAnchor();
+        if (!isAndroid) await spatialView!.setAnchor();
         setLeftUri(uri);
-        setMotion({ ...IDLE_MOTION, hasAnchor: true });
+        setMotion(isAndroid ? ANDROID_MANUAL_MOTION : { ...IDLE_MOTION, hasAnchor: true });
         setStep(2);
       } else {
         setRightUri(uri);
@@ -156,7 +179,7 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
     } finally {
       setBusy(false);
     }
-  }, [busy, step, t]);
+  }, [androidCameraRef, busy, cameraReady, isAndroid, step, t]);
 
   const reset = useCallback(() => {
     captureRef.current?.clearAnchor();
@@ -164,14 +187,22 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
     setLeftUri(null);
     setRightUri(null);
     setReviewing(false);
-    setMotion(IDLE_MOTION);
-  }, []);
+    setMotion(isAndroid ? ANDROID_MANUAL_MOTION : IDLE_MOTION);
+    setCameraLuminance(null);
+  }, [isAndroid]);
 
   /* ---------------------------------------------------------------------- */
   /* Auto shutter                                                           */
   /* ---------------------------------------------------------------------- */
 
   const wasReady = useRef(false);
+
+  const manualCapture = useCallback(() => {
+    // A deliberate shutter press must not be followed by a second automatic
+    // shot just because the current position already happens to be ready.
+    wasReady.current = guidance.canShoot;
+    void capture();
+  }, [capture, guidance.canShoot]);
 
   useEffect(() => {
     if (step !== 2) {
@@ -238,26 +269,58 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   /* ---------------------------------------------------------------------- */
 
   const level = Math.abs(motion.rollDegrees) <= LEVEL_TOLERANCE_DEGREES;
+  const cameraTextColor =
+    cameraLuminance !== null
+      ? cameraLuminance > 0.55
+        ? '#111114'
+        : '#FFFFFF'
+      : palette.label;
+  const cameraSecondaryTextColor =
+    cameraLuminance !== null
+      ? cameraLuminance > 0.55
+        ? 'rgba(17,17,20,0.68)'
+        : 'rgba(255,255,255,0.76)'
+      : palette.labelSecondary;
 
   return (
     <View style={styles.root}>
-      <SpatialCaptureView
-        ref={captureRef}
-        active
-        style={StyleSheet.absoluteFill}
-        onAvailabilityChange={(event) => setAvailability(event.nativeEvent)}
-        onTrackingStateChange={(event) => setTrackingState(event.nativeEvent.state)}
-        onMotionChange={(event) => setMotion(event.nativeEvent)}
-        onDistanceChange={(event) => {
-          // Only follow LiDAR while framing the first shot; locking the
-          // distance afterwards keeps the target baseline from moving under
-          // the photographer as they walk.
-          if (step === 1 && !manualDistance && Number.isFinite(event.nativeEvent.meters)) {
-            setDistanceMeters(event.nativeEvent.meters);
-          }
-          setDepthConfidence(event.nativeEvent.confidence);
-        }}
-      />
+      {isAndroid ? (
+        <CameraView
+          ref={androidCameraRef}
+          facing="back"
+          mode="picture"
+          style={StyleSheet.absoluteFill}
+          onCameraReady={() => setCameraReady(true)}
+          onMountError={(event) => {
+            setCameraReady(false);
+            Alert.alert(t('camera_error_title'), event.message);
+          }}
+        />
+      ) : (
+        <SpatialCaptureView
+          ref={captureRef}
+          active
+          style={StyleSheet.absoluteFill}
+          onAvailabilityChange={(event) => setAvailability(event.nativeEvent)}
+          onTrackingStateChange={(event) => setTrackingState(event.nativeEvent.state)}
+          onMotionChange={(event) => {
+            setMotion(event.nativeEvent);
+            const luminance = event.nativeEvent.luminance;
+            if (typeof luminance === 'number' && Number.isFinite(luminance)) {
+              setCameraLuminance(luminance);
+            }
+          }}
+          onDistanceChange={(event) => {
+            // Only follow LiDAR while framing the first shot; locking the
+            // distance afterwards keeps the target baseline from moving under
+            // the photographer as they walk.
+            if (step === 1 && !manualDistance && Number.isFinite(event.nativeEvent.meters)) {
+              setDistanceMeters(event.nativeEvent.meters);
+            }
+            setDepthConfidence(event.nativeEvent.confidence);
+          }}
+        />
+      )}
 
       {/* Onion skin of the first shot, for matching the framing. */}
       {step === 2 && leftUri && (
@@ -286,11 +349,12 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
         <IOSIconButton
           symbol="xmark"
           accessibilityLabel={t('close')}
+          color={cameraTextColor}
           onPress={onClose}
         />
 
         <NativeGlass style={styles.stepPill}>
-          <Text style={styles.stepText}>
+          <Text style={[styles.stepText, { color: cameraTextColor }]}>
             {step === 1 ? t('guide_step_left') : t('guide_step_right')}
           </Text>
         </NativeGlass>
@@ -317,11 +381,11 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           >
             <Icon
               name={autoShutter ? 'bolt.badge.automatic.fill' : 'bolt.slash.fill'}
-              color={autoShutter ? palette.blue : palette.labelSecondary}
+              color={autoShutter ? palette.blue : cameraSecondaryTextColor}
               size={16}
               weight="semibold"
             />
-            <Text style={styles.autoText}>
+            <Text style={[styles.autoText, { color: cameraTextColor }]}>
               {autoShutter ? t('guide_auto_on') : t('guide_auto_off')}
             </Text>
           </NativeGlass>
@@ -338,10 +402,16 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           <Icon
             name="level.fill"
             size={11}
-            color={level ? palette.green : palette.labelSecondary}
+            color={level ? palette.green : cameraSecondaryTextColor}
             style={styles.levelGlyph}
           />
-          <Text style={[styles.levelText, level && styles.levelTextOk]}>
+          <Text
+            style={[
+              styles.levelText,
+              { color: level ? palette.green : cameraSecondaryTextColor },
+              level && styles.levelTextOk,
+            ]}
+          >
             {level
               ? 'LEVEL'
               : `${motion.rollDegrees > 0 ? '+' : ''}${motion.rollDegrees.toFixed(1)}°`}
@@ -353,13 +423,16 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
         <View
           style={[
             styles.guidanceWrap,
-            { bottom: insets.bottom + (landscape ? 96 : 184) },
+            landscape ? styles.guidanceWrapLandscape : null,
+            { bottom: insets.bottom + (landscape ? 18 : 184) },
           ]}
         >
           <CaptureGuidanceHUD
             guidance={guidance}
             targetBaseline={targetBaseline}
             trackingOk={trackingOk}
+            foregroundColor={cameraTextColor}
+            secondaryColor={cameraSecondaryTextColor}
           />
         </View>
       )}
@@ -374,14 +447,14 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
         <NativeGlass style={styles.dock}>
           <View style={styles.metricsRow}>
             <View style={styles.metric}>
-              <Text style={styles.metricLabel}>
+              <Text style={[styles.metricLabel, { color: cameraSecondaryTextColor }]}>
                 {availability.lidar ? t('lidar_title') : t('subject_label')}
               </Text>
-              <Text style={styles.metricValue}>
+              <Text style={[styles.metricValue, { color: cameraTextColor }]}>
                 {formatMetricDistance(distanceMeters)}
               </Text>
               {availability.lidar && (
-                <Text style={styles.metricFootnote}>
+                <Text style={[styles.metricFootnote, { color: cameraSecondaryTextColor }]}>
                   {t(`lidar_confidence_${depthConfidence}` as const)}
                 </Text>
               )}
@@ -390,9 +463,16 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
             <View style={styles.metricDivider} />
 
             <View style={[styles.metric, styles.metricRight]}>
-              <Text style={styles.metricLabel}>{t('stereo_base_label')}</Text>
-              <Text style={styles.metricValue}>{instruction.formatted}</Text>
-              <Text style={styles.metricFootnote} numberOfLines={1}>
+              <Text style={[styles.metricLabel, { color: cameraSecondaryTextColor }]}>
+                {t('stereo_base_label')}
+              </Text>
+              <Text style={[styles.metricValue, { color: cameraTextColor }]}>
+                {instruction.formatted}
+              </Text>
+              <Text
+                style={[styles.metricFootnote, { color: cameraSecondaryTextColor }]}
+                numberOfLines={1}
+              >
                 {instruction.hint}
               </Text>
             </View>
@@ -401,10 +481,13 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           {step === 1 && (
             <View style={styles.manualDistanceRow}>
               <View style={styles.manualDistanceCopy}>
-                <Text style={styles.manualDistanceLabel}>
+                <Text style={[styles.manualDistanceLabel, { color: cameraTextColor }]}>
                   {t('manual_distance_label')}
                 </Text>
-                <Text style={styles.manualDistanceHint} numberOfLines={1}>
+                <Text
+                  style={[styles.manualDistanceHint, { color: cameraSecondaryTextColor }]}
+                  numberOfLines={1}
+                >
                   {t('manual_distance_hint')}
                 </Text>
               </View>
@@ -421,7 +504,7 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
                   placeholder={t('manual_distance_placeholder')}
                   placeholderTextColor={palette.labelTertiary}
                   selectTextOnFocus
-                  style={styles.manualDistanceInput}
+                  style={[styles.manualDistanceInput, { color: cameraTextColor }]}
                 />
               ) : null}
               <Pressable
@@ -443,6 +526,7 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
                 <Text
                   style={[
                     styles.manualDistanceButtonText,
+                    { color: cameraSecondaryTextColor },
                     manualDistance && styles.manualDistanceButtonTextSelected,
                   ]}
                 >
@@ -464,6 +548,7 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
                   id={preset.id}
                   label={t(preset.nameKey as never)}
                   selected={isNear(distanceMeters, preset.defaultSubjectDistanceMeters)}
+                  secondaryColor={cameraSecondaryTextColor}
                   onPress={() => {
                     hapticFeedback.selection();
                     setManualDistance(true);
@@ -486,11 +571,13 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
                 >
                   <Icon
                     name="arrow.counterclockwise"
-                    color={palette.label}
+                    color={cameraTextColor}
                     size={17}
                     style={styles.sideGlyph}
                   />
-                  <Text style={styles.sideActionText}>{t('capture_retake')}</Text>
+                  <Text style={[styles.sideActionText, { color: cameraTextColor }]}>
+                    {t('capture_retake')}
+                  </Text>
                 </Pressable>
               )}
             </View>
@@ -501,16 +588,27 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
                 step === 1 ? t('camera_shutter_left') : t('camera_shutter_right')
               }
               accessibilityState={{ disabled: busy }}
-              onPress={capture}
-              disabled={busy}
+              onPress={manualCapture}
+              disabled={busy || (isAndroid && !cameraReady)}
               style={({ pressed }) => [
                 styles.shutterOuter,
-                step === 2 && guidance.canShoot && styles.shutterReady,
+                {
+                  borderColor:
+                    step === 2 && guidance.canShoot ? palette.green : cameraTextColor,
+                },
                 pressed && styles.shutterPressed,
               ]}
             >
-              <View style={styles.shutterInner}>
-                {busy ? <ActivityIndicator color={palette.canvas} /> : null}
+              <View style={[styles.shutterInner, { backgroundColor: cameraTextColor }]}>
+                {busy ? (
+                  <ActivityIndicator
+                    color={
+                      cameraLuminance !== null && cameraLuminance > 0.55
+                        ? '#FFFFFF'
+                        : '#111114'
+                    }
+                  />
+                ) : null}
               </View>
             </Pressable>
 
@@ -543,13 +641,16 @@ function PresetChip({
   id,
   label,
   selected,
+  secondaryColor,
   onPress,
 }: {
   id: SubjectPresetId;
   label: string;
   selected: boolean;
+  secondaryColor: string;
   onPress: () => void;
 }) {
+  const { palette } = useTheme();
   const styles = useThemedStyles(createStyles);
 
   return (
@@ -564,7 +665,13 @@ function PresetChip({
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.presetText, selected && styles.presetTextSelected]}>
+      <Text
+        style={[
+          styles.presetText,
+          { color: selected ? palette.canvas : secondaryColor },
+          selected && styles.presetTextSelected,
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -702,6 +809,10 @@ const createStyles = (palette: Palette) => StyleSheet.create({
     left: 16,
     right: 16,
     alignItems: 'center',
+  },
+  guidanceWrapLandscape: {
+    right: 430,
+    alignItems: 'stretch',
   },
 
   dockWrap: { position: 'absolute', left: 12, right: 12, alignItems: 'center' },

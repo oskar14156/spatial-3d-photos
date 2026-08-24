@@ -37,6 +37,8 @@ export type MotionEvent = {
   rollDegrees: number;
   /** World-tracking quality at the moment of the reading. */
   tracking: TrackingState;
+  /** Approximate camera-frame luminance, 0 (dark) to 1 (bright). */
+  luminance?: number;
 };
 
 export type TrackingStateEvent = {

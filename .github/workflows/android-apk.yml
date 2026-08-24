@@ -1,6 +1,9 @@
-name: Android APK
+name: Android APKs
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -38,16 +41,27 @@ jobs:
       - name: Generate Android native project
         run: npx expo prebuild --platform android --no-install
 
-      - name: Build release APK
+      - name: Embed JS bundle in debug variant
+        working-directory: android
+        run: |
+          python3 -c "from pathlib import Path; p=Path('app/build.gradle'); s=p.read_text(); needle='    // debuggableVariants = [\"liteDebug\", \"prodDebug\"]'; replacement=needle+'\\n    debuggableVariants = []'; p.write_text(s.replace(needle, replacement, 1))"
+
+      - name: Build standalone debug APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          ./gradlew assembleDebug -PbundleDebugJs=true --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Upload debug and release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: spatial3d-android-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: spatial3d-android-apks
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14

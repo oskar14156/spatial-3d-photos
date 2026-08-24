@@ -1,4 +1,5 @@
 import ARKit
+import CoreVideo
 import ExpoModulesCore
 import UIKit
 
@@ -231,17 +232,20 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
 
   private func emitMotion(for frame: ARFrame) {
     let roll = rollDegrees(for: frame.camera)
+    let luminance = frameLuminance(for: frame)
 
     guard let anchorTransform else {
       smoothedOffset = simd_float3(repeating: 0)
-      onMotionChange([
+      var event: [String: Any] = [
         "hasAnchor": false,
         "lateral": 0.0,
         "vertical": 0.0,
         "forward": 0.0,
         "rollDegrees": roll,
         "tracking": Self.describe(frame.camera.trackingState)
-      ])
+      ]
+      if let luminance { event["luminance"] = luminance }
+      onMotionChange(event)
       return
     }
 
@@ -265,7 +269,7 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     // frame to frame, which made the readout twitch at centimetre precision.
     smoothedOffset = smoothedOffset * 0.6 + raw * 0.4
 
-    onMotionChange([
+    var event: [String: Any] = [
       "hasAnchor": true,
       "lateral": Double(smoothedOffset.x),
       "vertical": Double(smoothedOffset.y),
@@ -273,7 +277,41 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
       "forward": Double(smoothedOffset.z),
       "rollDegrees": roll,
       "tracking": Self.describe(frame.camera.trackingState)
-    ])
+    ]
+    if let luminance { event["luminance"] = luminance }
+    onMotionChange(event)
+  }
+
+  /// Samples the Y plane sparsely so camera chrome can choose a contrasting
+  /// text colour without decoding another image or doing work on every pixel.
+  private func frameLuminance(for frame: ARFrame) -> Double? {
+    let buffer = frame.capturedImage
+    CVPixelBufferLockBaseAddress(buffer, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+
+    let width = CVPixelBufferGetWidthOfPlane(buffer, 0)
+    let height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+    guard
+      width > 0,
+      height > 0,
+      let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0)
+    else { return nil }
+
+    let rowBytes = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+    let step = max(1, min(width, height) / 12)
+    let bytes = base.assumingMemoryBound(to: UInt8.self)
+    var total = 0.0
+    var count = 0
+
+    for y in Swift.stride(from: 0, to: height, by: step) {
+      let row = bytes.advanced(by: y * rowBytes)
+      for x in Swift.stride(from: 0, to: width, by: step) {
+        total += Double(row[x]) / 255.0
+        count += 1
+      }
+    }
+
+    return count > 0 ? total / Double(count) : nil
   }
 
   private func emitDistance(for frame: ARFrame) {

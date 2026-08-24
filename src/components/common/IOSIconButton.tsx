@@ -13,6 +13,8 @@ type Props = {
   selected?: boolean;
   /** Buttons floating over the camera or a stereo pair stay light-on-dark. */
   overMedia?: boolean;
+  /** Optional contrast colour for controls over a changing camera feed. */
+  color?: string;
   style?: ViewStyle;
 };
 
@@ -22,15 +24,16 @@ export function IOSIconButton({
   accessibilityLabel,
   selected = false,
   overMedia = false,
+  color,
   style,
 }: Props) {
   const { palette } = useTheme();
 
-  const tint = selected
+  const tint = color ?? (selected
     ? palette.blue
     : overMedia
     ? '#FFFFFF'
-    : palette.label;
+    : palette.label);
 
   return (
     <Pressable
