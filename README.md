@@ -107,6 +107,31 @@ Typen prüfen:
 npm run ts:check
 ```
 
+### Wenn der iOS-Build im Pod-Skript abbricht
+
+React Native lädt seine vorgebauten Kerne als Archive herunter und entpackt sie
+nach `ios/Pods/React-Core-prebuilt`, `ReactNativeDependencies` und
+`hermes-engine`. Vor jedem Build tauscht ein Skript diese Verzeichnisse gegen
+die Variante für die gewählte Konfiguration — und löscht dazu das alte. Liegt
+darin etwas, das das Skript nicht erwartet, bricht es ab:
+
+```
+Error: ENOTEMPTY, Directory not empty: React-Core-prebuilt
+```
+
+Zwei Auslöser in der Praxis: eine volle Festplatte, die das Entpacken mitten
+im Vorgang abbricht, und `.DS_Store`-Dateien, die der Finder anlegt, sobald
+jemand den Ordner öffnet. Beides hinterlässt ein Verzeichnis, das nicht leer
+ist, aber auch nichts Brauchbares enthält.
+
+```bash
+npm run clean:ios
+```
+
+Das löscht die `.DS_Store`-Dateien, wirft die entpackten Verzeichnisse weg und
+lässt `pod install` sie aus den bereits geladenen Archiven neu herstellen —
+ohne erneuten Download.
+
 ### Android
 
 Der gesamte JavaScript-Teil läuft auf beiden Plattformen: Oberfläche, alle fünf
