@@ -184,8 +184,9 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     }
   }
 
-  /// The direction, in ARKit camera space, that points to the top of the
-  /// screen for the current interface orientation.
+  /// The screen axes expressed in ARKit camera space for the current
+  /// interface orientation. Keeping this mapping explicit avoids the
+  /// 180-degree branch that can appear when reading a view matrix directly.
   ///
   /// ARKit's camera frame is defined for a landscape-right device: +x runs
   /// along the long edge and +y up the short one. Rotating the device to
@@ -194,17 +195,40 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   /// upright, and the level check could never pass.
   /// Signed device roll in degrees, zero when the top of the screen points at
   /// world up. Positive means the horizon tilts clockwise on screen.
+  private var screenAxesInCameraSpace: (up: simd_float3, right: simd_float3) {
+    switch interfaceOrientation {
+    case .landscapeRight:
+      return (simd_float3(0, 1, 0), simd_float3(1, 0, 0))
+    case .landscapeLeft:
+      return (simd_float3(0, -1, 0), simd_float3(-1, 0, 0))
+    case .portraitUpsideDown:
+      return (simd_float3(-1, 0, 0), simd_float3(0, 1, 0))
+    default:
+      return (simd_float3(1, 0, 0), simd_float3(0, -1, 0))
+    }
+  }
+
+  /// Signed device roll in degrees, zero when the top of the screen points at
+  /// world up. Positive means the horizon tilts clockwise on screen.
   private func rollDegrees(for camera: ARCamera) -> Double {
-    // ARKit applies the current interface orientation here. This keeps the
-    // same screen-up/screen-right convention in portrait and landscape.
-    let worldUpInScreen = simd_mul(
-      camera.viewMatrix(for: interfaceOrientation),
-      simd_float4(0, 1, 0, 0)
+    let transform = camera.transform
+    let rotation = simd_float3x3(
+      simd_make_float3(transform.columns.0),
+      simd_make_float3(transform.columns.1),
+      simd_make_float3(transform.columns.2)
     )
-    var degrees = Double(atan2(worldUpInScreen.x, worldUpInScreen.y)) * 180 / .pi
-    // The gravity vector has no arrow direction for a horizon. Fold the
-    // equivalent upside-down representation back into the useful roll range
-    // so a stale 180° branch never hides a small, real tilt.
+
+    let axes = screenAxesInCameraSpace
+    let screenUp = simd_normalize(rotation * axes.up)
+    let screenRight = simd_normalize(rotation * axes.right)
+    let worldUp = simd_float3(0, 1, 0)
+    var degrees = Double(atan2(
+      simd_dot(worldUp, screenRight),
+      simd_dot(worldUp, screenUp)
+    )) * 180 / .pi
+
+    // A horizon has no arrow direction. Fold its equivalent upside-down
+    // representation into the useful range so the UI never flips once.
     while degrees > 90 { degrees -= 180 }
     while degrees < -90 { degrees += 180 }
     return degrees
