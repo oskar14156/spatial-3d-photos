@@ -24,6 +24,11 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   /// Smoothed lateral/vertical/forward displacement, in metres.
   private var smoothedOffset = simd_float3(repeating: 0)
 
+  /// Exposure adjustment for stills, in EV. ARKit owns the live camera feed;
+  /// applying this during JPEG encoding keeps the preview and saved still
+  /// aligned without interrupting world tracking.
+  private var exposureCompensation: Float = 0
+
   /// Read on the session queue, so it is cached from the main thread instead
   /// of touching UIKit off-thread.
   private var interfaceOrientation: UIInterfaceOrientation = .portrait
@@ -51,7 +56,7 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
   override func layoutSubviews() {
     super.layoutSubviews()
     sceneView.frame = bounds
-    interfaceOrientation = window?.windowScene?.interfaceOrientation ?? interfaceOrientation
+    syncInterfaceOrientation()
   }
 
   deinit {
@@ -73,6 +78,9 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     }
 
     let configuration = ARWorldTrackingConfiguration()
+    // Keep continuous autofocus enabled for both close subjects and distant
+    // scenes. ARKit owns the camera, so this is the supported focus control.
+    configuration.isAutoFocusEnabled = true
 
     // Stills are pulled from this session, so prefer the format that ARKit
     // recommends for high-resolution frame capture when one exists.
@@ -105,6 +113,10 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     smoothedOffset = simd_float3(repeating: 0)
   }
 
+  func setExposureCompensation(_ value: Double) {
+    exposureCompensation = Float(max(-2, min(2, value)))
+  }
+
   // MARK: - Stills
 
   /// Grabs a full-resolution still. Falls back to the streaming frame on the
@@ -130,7 +142,13 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
       }
 
       completion(
-        Result { try Self.writeJPEG(frame.capturedImage, orientation: orientation) }
+        Result {
+          try Self.writeJPEG(
+            frame.capturedImage,
+            orientation: orientation,
+            exposureCompensation: self.exposureCompensation
+          )
+        }
       )
     }
   }
@@ -145,7 +163,13 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
 
     let orientation = currentImageOrientation()
     completion(
-      Result { try Self.writeJPEG(frame.capturedImage, orientation: orientation) }
+      Result {
+        try Self.writeJPEG(
+          frame.capturedImage,
+          orientation: orientation,
+          exposureCompensation: exposureCompensation
+        )
+      }
     )
   }
 
@@ -177,24 +201,37 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
       camera.viewMatrix(for: interfaceOrientation),
       simd_float4(0, 1, 0, 0)
     )
-    return Double(atan2(worldUpInScreen.x, worldUpInScreen.y)) * 180 / .pi
+    var degrees = Double(atan2(worldUpInScreen.x, worldUpInScreen.y)) * 180 / .pi
+    // The gravity vector has no arrow direction for a horizon. Fold the
+    // equivalent upside-down representation back into the useful roll range
+    // so a stale 180° branch never hides a small, real tilt.
+    while degrees > 90 { degrees -= 180 }
+    while degrees < -90 { degrees += 180 }
+    return degrees
   }
 
   private static func writeJPEG(
     _ buffer: CVPixelBuffer,
-    orientation: CGImagePropertyOrientation
+    orientation: CGImagePropertyOrientation,
+    exposureCompensation: Float = 0
   ) throws -> URL {
     let image = CIImage(cvPixelBuffer: buffer).oriented(orientation)
+    let adjustedImage = abs(exposureCompensation) > 0.001
+      ? image.applyingFilter(
+          "CIExposureAdjust",
+          parameters: [kCIInputEVKey: exposureCompensation]
+        )
+      : image
     let context = CIContext()
 
     guard
-      let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
+      let colorSpace = adjustedImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
     else {
       throw SpatialCaptureError.encodeFailed
     }
 
     guard let data = context.jpegRepresentation(
-      of: image,
+      of: adjustedImage,
       colorSpace: colorSpace,
       options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.95]
     ) else {
@@ -219,6 +256,11 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
 
   func session(_ session: ARSession, didUpdate frame: ARFrame) {
     guard active else { return }
+
+    // Rotation can happen without a full React layout pass. ARKit's
+    // orientation-aware view matrix must always use the orientation of the
+    // frame currently shown on screen.
+    syncInterfaceOrientation()
 
     // ~8 Hz is plenty for a human following a distance readout, and keeps the
     // bridge quiet while the session runs at 60 fps.
@@ -280,6 +322,13 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     ]
     if let luminance { event["luminance"] = luminance }
     onMotionChange(event)
+  }
+
+  private func syncInterfaceOrientation() {
+    guard let orientation = window?.windowScene?.interfaceOrientation,
+          orientation != .unknown
+    else { return }
+    interfaceOrientation = orientation
   }
 
   /// Samples the Y plane sparsely so camera chrome can choose a contrasting

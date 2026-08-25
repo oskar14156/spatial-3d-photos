@@ -58,6 +58,8 @@ export type SpatialCaptureViewRef = {
   /** Zeroes the displacement origin at the current pose. */
   setAnchor: () => Promise<boolean>;
   clearAnchor: () => Promise<void>;
+  /** Sets the exposure adjustment used for the next captured still, in EV. */
+  setExposureCompensation: (value: number) => Promise<void>;
   /** Resolves with a `file://` URI for a full-resolution JPEG. */
   capturePhoto: () => Promise<string>;
 };

@@ -61,6 +61,11 @@ export const TRANSLATIONS = {
     camera_level_warning: 'iPhone waagerecht halten',
     camera_level_perfect: 'Perfekt waagerecht!',
     camera_gyro_level: 'Horizont-Wasserwaage',
+    camera_focus: 'Autofokus einmal auslösen',
+    camera_light: 'Kameralicht',
+    camera_light_on: 'Kameralicht einschalten',
+    camera_light_off: 'Kameralicht ausschalten',
+    camera_exposure: 'Belichtung',
 
     // Stereobase & 1/30 Rule Guide
     stereobase_rule_title: 'Die 1/30-Basis-Regel',
@@ -387,6 +392,11 @@ export const TRANSLATIONS = {
     camera_level_warning: 'Hold iPhone level',
     camera_level_perfect: 'Level locked!',
     camera_gyro_level: 'Horizon Level',
+    camera_focus: 'Trigger autofocus once',
+    camera_light: 'Camera light',
+    camera_light_on: 'Turn camera light on',
+    camera_light_off: 'Turn camera light off',
+    camera_exposure: 'Exposure',
 
     // Stereobase & 1/30 Rule Guide
     stereobase_rule_title: 'The 1/30th Baseline Rule',

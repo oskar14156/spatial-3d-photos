@@ -108,6 +108,9 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   );
   const [cameraReady, setCameraReady] = useState(!isAndroid);
   const [cameraLuminance, setCameraLuminance] = useState<number | null>(null);
+  const [focusPulse, setFocusPulse] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [exposureCompensation, setExposureCompensation] = useState(0);
   // Manual capture is the safe default. Auto capture is opt-in via the
   // clearly labelled AUTO AN/AUS control and never surprises a manual press.
   const [autoShutter, setAutoShutter] = useState(false);
@@ -140,6 +143,32 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
       setPermission(result.granted)
     );
   }, []);
+
+  useEffect(() => {
+    if (!isAndroid) {
+      captureRef.current?.setExposureCompensation(exposureCompensation);
+    }
+  }, [exposureCompensation, isAndroid]);
+
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerFocus = useCallback(() => {
+    hapticFeedback.light();
+    if (!isAndroid) return;
+
+    if (focusTimer.current !== null) clearTimeout(focusTimer.current);
+    setFocusPulse(true);
+    focusTimer.current = setTimeout(() => {
+      focusTimer.current = null;
+      setFocusPulse(false);
+    }, 700);
+  }, [isAndroid]);
+
+  useEffect(
+    () => () => {
+      if (focusTimer.current !== null) clearTimeout(focusTimer.current);
+    },
+    []
+  );
 
   /* ---------------------------------------------------------------------- */
   /* Capture                                                                */
@@ -320,6 +349,9 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
           ref={androidCameraRef}
           facing="back"
           mode="picture"
+          autofocus={focusPulse ? 'on' : 'off'}
+          flash="off"
+          enableTorch={torchEnabled}
           style={StyleSheet.absoluteFill}
           onCameraReady={() => setCameraReady(true)}
           onMountError={(event) => {
@@ -350,6 +382,17 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
             }
             setDepthConfidence(event.nativeEvent.confidence);
           }}
+        />
+      )}
+
+      {!isAndroid && exposureCompensation < 0 && (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.exposureShade,
+            { opacity: Math.min(0.22, Math.abs(exposureCompensation) * 0.12) },
+          ]}
         />
       )}
 
@@ -422,6 +465,59 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
         </Pressable>
       </View>
 
+      <View
+        style={[
+          styles.cameraTools,
+          { top: insets.top + (landscape ? 58 : 112), right: 14 },
+        ]}
+      >
+        {isAndroid && (
+          <IOSIconButton
+            symbol="viewfinder"
+            accessibilityLabel={t('camera_focus')}
+            selected={focusPulse}
+            color={cameraTextColor}
+            onPress={triggerFocus}
+          />
+        )}
+        {isAndroid && (
+          <IOSIconButton
+            symbol="circle.lefthalf.filled"
+            accessibilityLabel={
+              torchEnabled ? t('camera_light_off') : t('camera_light_on')
+            }
+            selected={torchEnabled}
+            color={cameraTextColor}
+            onPress={() => {
+              hapticFeedback.light();
+              setTorchEnabled((value) => !value);
+            }}
+          />
+        )}
+        {!isAndroid && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('camera_exposure')}
+            onPress={() => {
+              hapticFeedback.selection();
+              setExposureCompensation((value) => nextExposure(value));
+            }}
+            style={({ pressed }) => [styles.exposureButton, pressed && styles.pressed]}
+          >
+            <NativeGlass interactive style={styles.exposurePill}>
+              <Icon
+                name="circle.lefthalf.filled"
+                size={16}
+                color={cameraTextColor}
+              />
+              <Text style={[styles.exposureText, { color: cameraTextColor }]}>
+                EV {formatExposure(exposureCompensation)}
+              </Text>
+            </NativeGlass>
+          </Pressable>
+        )}
+      </View>
+
       <HorizonLine rollDegrees={motion.rollDegrees} />
 
       <View
@@ -472,10 +568,12 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
 
       <View
         style={[
-          styles.dockWrap,
+          landscape ? styles.dockWrapLandscape : styles.dockWrap,
           { bottom: insets.bottom + 10 },
-          landscape && styles.dockWrapLandscape,
-          landscape && { width: landscapeDockWidth },
+          landscape && {
+            left: width - landscapeDockWidth - 14,
+            width: landscapeDockWidth,
+          },
         ]}
       >
         <NativeGlass style={styles.dock}>
@@ -728,6 +826,16 @@ function formatManualDistance(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+function nextExposure(value: number): number {
+  const steps = [0, -0.5, -1, -1.5, 0.5];
+  const index = steps.findIndex((step) => Math.abs(step - value) < 0.01);
+  return steps[(index + 1) % steps.length];
+}
+
+function formatExposure(value: number): string {
+  return value > 0 ? `+${value.toFixed(1)}` : value.toFixed(1);
+}
+
 const createStyles = (palette: Palette) => StyleSheet.create({
   root: {
     flex: 1,
@@ -806,6 +914,18 @@ const createStyles = (palette: Palette) => StyleSheet.create({
     justifyContent: 'center',
   },
   stepText: { ...type.eyebrow, color: palette.label },
+  cameraTools: { position: 'absolute', alignItems: 'flex-end', gap: 8 },
+  exposureButton: { height: 44 },
+  exposurePill: {
+    height: 44,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  exposureText: { ...type.eyebrow, fontSize: 10, fontWeight: '700' },
+  exposureShade: { backgroundColor: '#000000' },
   autoButton: { height: 44, minWidth: 44 },
   autoPill: {
     height: 44,
@@ -849,7 +969,7 @@ const createStyles = (palette: Palette) => StyleSheet.create({
   },
 
   dockWrap: { position: 'absolute', left: 12, right: 12, alignItems: 'center' },
-  dockWrapLandscape: { left: undefined, right: 14 },
+  dockWrapLandscape: { position: 'absolute', alignItems: 'center' },
   dock: {
     width: '100%',
     maxWidth: 620,

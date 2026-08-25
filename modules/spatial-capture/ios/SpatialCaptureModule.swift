@@ -25,6 +25,10 @@ public class SpatialCaptureModule: Module {
         view.clearAnchor()
       }
 
+      AsyncFunction("setExposureCompensation") { (view: SpatialCaptureView, value: Double) in
+        view.setExposureCompensation(value)
+      }
+
       /// Resolves with a `file://` URI for a full-resolution JPEG still.
       AsyncFunction("capturePhoto") { (view: SpatialCaptureView, promise: Promise) in
         view.capturePhoto { result in
