@@ -129,23 +129,32 @@ class SpatialMediaModule : Module() {
       val left = decodeBitmap(resolve(leftUri))
       val right = decodeBitmap(resolve(rightUri))
 
-      val output = when (format) {
-        "sbs_full" -> combine(left, right, halfWidth = false)
-        "sbs_half" -> combine(left, right, halfWidth = true)
-        "cross_eye" -> combine(right, left, halfWidth = false)
-        "anaglyph_color" -> anaglyph(left, right, AnaglyphMode.COLOR)
-        "anaglyph_half_color" -> anaglyph(left, right, AnaglyphMode.HALF_COLOR)
-        "anaglyph_mono" -> anaglyph(left, right, AnaglyphMode.MONO)
-        "left_eye_only" -> left
-        "right_eye_only" -> right
-        else -> throw SpatialMediaException("Unknown export format: $format")
-      }
+      try {
+        if (format == "wigglegram_gif") {
+          return@AsyncFunction writeWiggleGif(left, right)
+        }
 
-      val uri = writeJpeg(output)
-      if (output !== left) left.recycle()
-      if (output !== right) right.recycle()
-      output.recycle()
-      uri
+        val output = when (format) {
+          "sbs_full" -> combine(left, right, halfWidth = false)
+          "sbs_half" -> combine(left, right, halfWidth = true)
+          "cross_eye" -> combine(right, left, halfWidth = false)
+          "anaglyph_color" -> anaglyph(left, right, AnaglyphMode.COLOR)
+          "anaglyph_half_color" -> anaglyph(left, right, AnaglyphMode.HALF_COLOR)
+          "anaglyph_mono" -> anaglyph(left, right, AnaglyphMode.MONO)
+          "left_eye_only" -> left
+          "right_eye_only" -> right
+          else -> throw SpatialMediaException("Unknown export format: $format")
+        }
+
+        try {
+          writeJpeg(output)
+        } finally {
+          if (output !== left && output !== right) output.recycle()
+        }
+      } finally {
+        left.recycle()
+        right.recycle()
+      }
     }
   }
 
@@ -335,13 +344,33 @@ class SpatialMediaModule : Module() {
     )
   }
 
+  private fun writeWiggleGif(left: Bitmap, right: Bitmap): String {
+    val file = File(
+      appContext.cacheDirectory,
+      "stereo-${UUID.randomUUID()}.gif"
+    )
+
+    try {
+      AnimatedGifEncoder.write(file, left, right)
+    } catch (error: Exception) {
+      file.delete()
+      throw SpatialMediaException(
+        "Could not create the wigglegram GIF: ${error.message ?: "encoding failed"}"
+      )
+    }
+
+    return "file://${file.absolutePath}"
+  }
+
   private fun writeJpeg(bitmap: Bitmap): String {
     val file = File(
       appContext.cacheDirectory,
       "stereo-${UUID.randomUUID()}.jpg"
     )
     FileOutputStream(file).use { stream ->
-      bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+      if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)) {
+        throw SpatialMediaException("Could not encode the stereo JPEG.")
+      }
     }
     return "file://${file.absolutePath}"
   }
