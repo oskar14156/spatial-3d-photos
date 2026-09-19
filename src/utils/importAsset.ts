@@ -2,6 +2,7 @@ import * as MediaLibrary from 'expo-media-library';
 import type { StereoPair } from '../types';
 import { DEFAULT_ALIGNMENT } from '../constants';
 import SpatialMedia from '../../modules/spatial-media';
+import { log } from './log';
 import { originalIdentifier, type ProbeResult } from './useSpatialProbe';
 import { splitSideBySideImage } from './stereoImageProcessor';
 
@@ -29,16 +30,23 @@ export async function importAsset(
     params?: Record<string, string | number>
   ) => string;
 
+  let ownedCopy: string | undefined;
+
   try {
     const startedAt = Date.now();
-    console.log(`[Spatial3D] import start: ${asset.filename}`);
+    log.debug(`[Spatial3D] import start: ${asset.filename}`);
 
     // The probe keeps its copy when the asset turned out to be spatial; make
     // a fresh one otherwise. Either way we work on a file we are allowed to
     // read, never on the library path itself.
-    const uri =
-      probe?.originalUri ??
-      (await SpatialMedia.exportOriginal(originalIdentifier(asset)));
+    //
+    // A copy made here is ours to clean up. Every success path keeps it — the
+    // split results name it as their original — so only the two failure exits
+    // below discard it. A copy the probe handed us belongs to the probe.
+    if (!probe?.originalUri) {
+      ownedCopy = await SpatialMedia.exportOriginal(originalIdentifier(asset));
+    }
+    const uri = probe?.originalUri ?? (ownedCopy as string);
 
     // Gallery probing already decoded the opening frames. Reusing its result
     // avoids probing a spatial video a second time before the expensive split.
@@ -52,9 +60,9 @@ export async function importAsset(
         : await SpatialMedia.inspect(uri);
 
     if (inspection.kind === 'spatial-photo') {
-      console.log(`[Spatial3D] split spatial photo: ${asset.filename}`);
+      log.debug(`[Spatial3D] split spatial photo: ${asset.filename}`);
       const result = await SpatialMedia.splitSpatialPhoto(uri);
-      console.log(`[Spatial3D] import finished: ${asset.filename} (${Date.now() - startedAt}ms)`);
+      log.debug(`[Spatial3D] import finished: ${asset.filename} (${Date.now() - startedAt}ms)`);
       return {
         reason: '',
         pair: {
@@ -77,9 +85,9 @@ export async function importAsset(
     }
 
     if (inspection.kind === 'spatial-video') {
-      console.log(`[Spatial3D] split spatial video: ${asset.filename}`);
+      log.debug(`[Spatial3D] split spatial video: ${asset.filename}`);
       const result = await SpatialMedia.splitSpatialVideo(uri);
-      console.log(`[Spatial3D] import finished: ${asset.filename} (${Date.now() - startedAt}ms)`);
+      log.debug(`[Spatial3D] import finished: ${asset.filename} (${Date.now() - startedAt}ms)`);
       return {
         reason: '',
         pair: {
@@ -128,6 +136,7 @@ export async function importAsset(
       };
     }
 
+    if (ownedCopy) void SpatialMedia.discardTemporary(ownedCopy);
     return {
       reason: `${asset.filename}: ${
         inspection.unsupportedPlatform
@@ -138,7 +147,8 @@ export async function importAsset(
       }`,
     };
   } catch (error) {
-    console.error(`[Spatial3D] import failed: ${asset.filename}`, error);
+    if (ownedCopy) void SpatialMedia.discardTemporary(ownedCopy);
+    log.error(`[Spatial3D] import failed: ${asset.filename}`, error);
     return {
       reason: `${asset.filename}: ${
         error instanceof Error ? error.message : t('error')

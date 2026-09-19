@@ -1,4 +1,5 @@
 import ExpoModulesCore
+
 @preconcurrency import AVFoundation
 import CoreImage
 import CoreMedia
@@ -9,6 +10,17 @@ import ImageIO
 import UniformTypeIdentifiers
 import UIKit
 import Foundation
+
+/// Debug tracing for the split pipeline, compiled out of release builds.
+///
+/// One of these traces names the file being processed, and device logs are
+/// readable from a paired Mac and travel in sysdiagnose bundles, so none of
+/// it should ship.
+private func debugLog(_ message: @autoclosure () -> String) {
+  #if DEBUG
+    print(message())
+  #endif
+}
 
 public final class SpatialMediaModule: Module {
   public func definition() -> ModuleDefinition {
@@ -360,7 +372,7 @@ public final class SpatialMediaModule: Module {
 
   @available(iOS 17.2, *)
   private static func splitSpatialVideo(_ url: URL) async throws -> [String: Any] {
-    print("[SpatialMedia] split start: \(url.lastPathComponent)")
+    debugLog("[SpatialMedia] split start: \(url.lastPathComponent)")
     let asset = AVURLAsset(url: url)
     guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
       throw SpatialMediaError.noVideoTrack
@@ -396,7 +408,7 @@ public final class SpatialMediaModule: Module {
 
     let width = CVPixelBufferGetWidth(firstLeft)
     let height = CVPixelBufferGetHeight(firstLeft)
-    print("[SpatialMedia] first stereo frame: \(width)x\(height)")
+    debugLog("[SpatialMedia] first stereo frame: \(width)x\(height)")
 
     let leftURL = cacheURL(ext: "mov")
     let rightURL = cacheURL(ext: "mov")
@@ -417,7 +429,7 @@ public final class SpatialMediaModule: Module {
     let firstPTS = firstSample.presentationTimeStamp
     try leftWriter.start(at: .zero)
     try rightWriter.start(at: .zero)
-    print("[SpatialMedia] writers started")
+    debugLog("[SpatialMedia] writers started")
 
     let audioGroup = DispatchGroup()
     let audioError = ErrorBox()
@@ -482,12 +494,12 @@ public final class SpatialMediaModule: Module {
       rightWriter.cancel()
       throw reader.error ?? SpatialMediaError.readFailed
     }
-    print("[SpatialMedia] video and audio frames written")
+    debugLog("[SpatialMedia] video and audio frames written")
 
     async let leftFinished: Void = leftWriter.finish()
     async let rightFinished: Void = rightWriter.finish()
     _ = try await (leftFinished, rightFinished)
-    print("[SpatialMedia] split finished")
+    debugLog("[SpatialMedia] split finished")
 
     let duration = try await asset.load(.duration)
 

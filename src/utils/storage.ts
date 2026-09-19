@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { log } from './log';
 import type { LanguageCode, StereoAlignment, StereoPair } from '../types';
 
 const KEYS = {
@@ -20,7 +21,7 @@ async function readProjects(): Promise<StereoPair[]> {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as StereoPair[]) : [];
   } catch (error) {
-    console.warn('Could not read saved stereo pairs', error);
+    log.warn('Could not read saved stereo pairs', error);
     return [];
   }
 }
@@ -29,7 +30,7 @@ async function writeProjects(projects: StereoPair[]): Promise<void> {
   try {
     await AsyncStorage.setItem(KEYS.projects, JSON.stringify(projects));
   } catch (error) {
-    console.warn('Could not persist stereo pairs', error);
+    log.warn('Could not persist stereo pairs', error);
   }
 }
 
@@ -74,6 +75,6 @@ export async function saveLanguagePreference(
   try {
     await AsyncStorage.setItem(KEYS.language, language);
   } catch (error) {
-    console.warn('Could not persist the language preference', error);
+    log.warn('Could not persist the language preference', error);
   }
 }

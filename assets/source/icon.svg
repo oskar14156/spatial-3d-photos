@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Two photographs offset the way a stereo pair is, one per eye. Where they
+       overlap the image fuses and goes bright — the premise of the app in one
+       mark. The offset is diagonal and the frames carry a 4:3 photographic
+       ratio: laid out side by side as equal squares in red and cyan, the same
+       idea reads either as a flag or as a certain video app. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26262B"/>
+      <stop offset="1" stop-color="#08080A"/>
+    </linearGradient>
+    <clipPath id="leftEye"><rect x="200" y="300" width="420" height="315" rx="58"/></clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect x="200" y="300" width="420" height="315" rx="58" fill="#00B4D8"/>
+  <rect x="404" y="409" width="420" height="315" rx="58" fill="#E63946"/>
+  <g clip-path="url(#leftEye)">
+    <rect x="404" y="409" width="420" height="315" rx="58" fill="#F7F9FC"/>
+  </g>
+</svg>

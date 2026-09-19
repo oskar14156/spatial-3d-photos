@@ -145,7 +145,10 @@ export const ExportModal: React.FC<Props> = ({
     setBusy(true);
     try {
       if (action === 'save') {
-        const permission = await MediaLibrary.requestPermissionsAsync();
+        // Write-only: exporting adds a file, it never reads the library.
+        // Asking for full access here would prompt for far more than the
+        // action needs, and iOS shows the gentler add-only sheet for this.
+        const permission = await MediaLibrary.requestPermissionsAsync(true);
         if (!permission.granted) {
           throw new Error(t('import_photos_permission_body'));
         }

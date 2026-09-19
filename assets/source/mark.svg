@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The bare mark on transparency, scaled to 0.85 about the centre so its
+       corners stay inside the circle Android masks an adaptive foreground to. -->
+  <defs>
+    <clipPath id="leftEye"><rect x="247" y="332" width="357" height="268" rx="49"/></clipPath>
+  </defs>
+  <rect x="247" y="332" width="357" height="268" rx="49" fill="#00B4D8"/>
+  <rect x="420" y="424" width="357" height="268" rx="49" fill="#E63946"/>
+  <g clip-path="url(#leftEye)">
+    <rect x="420" y="424" width="357" height="268" rx="49" fill="#F7F9FC"/>
+  </g>
+</svg>
