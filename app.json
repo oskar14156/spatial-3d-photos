@@ -28,7 +28,7 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "userInterfaceStyle": "automatic",
-      "buildNumber": "1"
+      "buildNumber": "2"
     },
     "android": {
       "package": "com.oskarpolster.spatial3d",
@@ -80,7 +80,8 @@
         {
           "deploymentTarget": "17.2"
         }
-      ]
+      ],
+      "./plugins/withSceneLifecycle"
     ],
     "extra": {
       "eas": {
