@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Image,
   Platform,
   Pressable,
@@ -176,21 +177,36 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
   /* Capture                                                                */
   /* ---------------------------------------------------------------------- */
 
+  // `busy` is state, so two triggers inside one render — a double tap on the
+  // shutter, or a tap as the auto-shutter fires — both saw it false and ran
+  // two captures at once. The ref flips synchronously.
+  const capturing = useRef(false);
+  // Bumped by reset(). A capture still in flight when the user retakes must
+  // not write its photo into the fresh attempt.
+  const attempt = useRef(0);
+
   const capture = useCallback(async () => {
     const spatialView = captureRef.current;
     if (
+      capturing.current ||
       busy ||
       (isAndroid ? !androidCameraRef.current || !cameraReady : !spatialView)
     ) {
       return;
     }
 
+    capturing.current = true;
+    const startedIn = attempt.current;
     setBusy(true);
     try {
       hapticFeedback.heavy();
       const uri = isAndroid
         ? (await androidCameraRef.current!.takePictureAsync({ quality: 0.95 })).uri
         : await spatialView!.capturePhoto();
+
+      // Retaken while this shot was in flight: drop it rather than open the
+      // review with a stale eye after the next first shot.
+      if (startedIn !== attempt.current) return;
 
       if (step === 1) {
         // Zero the displacement origin the instant the first frame is taken,
@@ -211,11 +227,13 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
         error instanceof Error ? error.message : t('camera_error_body')
       );
     } finally {
+      capturing.current = false;
       setBusy(false);
     }
   }, [androidCameraRef, busy, cameraReady, isAndroid, step, t]);
 
   const reset = useCallback(() => {
+    attempt.current += 1;
     captureRef.current?.clearAnchor();
     setStep(1);
     setLeftUri(null);
@@ -311,11 +329,20 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
         <Pressable
           accessibilityRole="button"
           style={({ pressed }) => [styles.permissionPrimary, pressed && styles.pressed]}
-          onPress={() =>
-            Camera.requestCameraPermissionsAsync().then((result) =>
-              setPermission(result.granted)
-            )
-          }
+          onPress={async () => {
+            try {
+              const result = await Camera.requestCameraPermissionsAsync();
+              setPermission(result.granted);
+              // Once refused, iOS never shows the prompt again and the request
+              // answers "no" at once — the button looked dead. Settings is the
+              // only place left to grant it.
+              if (!result.granted && !result.canAskAgain) {
+                void Linking.openSettings();
+              }
+            } catch {
+              setPermission(false);
+            }
+          }}
         >
           <Text style={styles.permissionPrimaryText}>{t('camera_permission_allow')}</Text>
         </Pressable>

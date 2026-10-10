@@ -85,17 +85,35 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     if (value) start() else stop()
   }
 
+  private var depthSupported = false
+
   private fun start() {
     unavailableReported = false
     latestDisplayPose = null
     latestTrackingState = null
+
+    // Resume the existing session rather than building a new one. A fresh
+    // session has its own world origin, which left the first shot's anchor
+    // meaningless after any trip to the background, and the old one was only
+    // ever paused — never closed — so each round trip leaked a session and its
+    // camera resources.
+    session?.let { existing ->
+      try {
+        existing.resume()
+        onAvailabilityChange(mapOf("worldTracking" to true, "lidar" to depthSupported))
+        surface.onResume()
+      } catch (error: Throwable) {
+        reportUnavailable(error)
+      }
+      return
+    }
 
     try {
       val created = Session(context)
       session = created
 
       val config = Config(created)
-      val depthSupported = created.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
+      depthSupported = created.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
       if (depthSupported) config.depthMode = Config.DepthMode.AUTOMATIC
       config.focusMode = Config.FocusMode.AUTO
       config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
@@ -116,6 +134,11 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     runCatching { session?.pause() }
     latestDisplayPose = null
     latestTrackingState = null
+    // A capture waiting for the next frame would wait forever once frames stop.
+    if (captureRequested.getAndSet(false)) {
+      captureCallback?.invoke(Result.failure(IllegalStateException("Camera stopped before the photo was taken.")))
+      captureCallback = null
+    }
   }
 
   fun release() {
@@ -148,6 +171,12 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
    * is valid; `capturePhoto` itself is called from the module's async queue.
    */
   fun capturePhoto(completion: (Result<String>) -> Unit) {
+    // One request at a time: a second call used to overwrite the first
+    // callback and leave its promise pending forever.
+    if (captureRequested.get()) {
+      completion(Result.failure(IllegalStateException("A photo is already being taken.")))
+      return
+    }
     captureCallback = completion
     captureRequested.set(true)
   }
@@ -277,7 +306,8 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
       val index = y * stride + x
       if (index >= buffer.limit()) return
 
-      // ARCore reports depth in millimetres, low 3 bits confidence.
+      // `acquireDepthImage16Bits` reports all 16 bits as millimetres; only the
+      // deprecated DEPTH16 image packed confidence into the top bits.
       val millimetres = buffer.get(index).toInt() and 0xFFFF
       if (millimetres <= 0) return
 
@@ -419,11 +449,12 @@ class SpatialCaptureView(context: Context, appContext: AppContext) :
     val uBuffer = uPlane.buffer
     val vBuffer = vPlane.buffer
 
+    // Each chroma plane is read with its own strides; they usually match, but
+    // the format does not promise it.
     for (row in 0 until height / 2) {
       for (col in 0 until width / 2) {
-        val uvIndex = row * uPlane.rowStride + col * uPlane.pixelStride
-        output[offset++] = vBuffer.get(uvIndex)
-        output[offset++] = uBuffer.get(uvIndex)
+        output[offset++] = vBuffer.get(row * vPlane.rowStride + col * vPlane.pixelStride)
+        output[offset++] = uBuffer.get(row * uPlane.rowStride + col * uPlane.pixelStride)
       }
     }
 

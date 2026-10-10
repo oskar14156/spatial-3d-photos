@@ -33,6 +33,7 @@ import {
 import { formatMetricDistance } from '../utils/stereobaseCalculator';
 import { hapticFeedback } from '../utils/haptics';
 import { saveCaptureToPhotos } from '../utils/saveCaptureToPhotos';
+import { log } from '../utils/log';
 import { IOSIconButton } from '../components/common/IOSIconButton';
 import { NativeGlass } from '../components/common/NativeGlass';
 import { TabBar, type TabId } from '../components/common/TabBar';
@@ -121,16 +122,29 @@ export const StudioScreen: React.FC = () => {
     let cancelled = false;
 
     (async () => {
-      const [language, saved] = await Promise.all([
-        loadLanguagePreference(),
-        loadSavedStereoPairs(),
-      ]);
-      if (cancelled) return;
+      try {
+        const [language, saved] = await Promise.all([
+          loadLanguagePreference(),
+          loadSavedStereoPairs(),
+        ]);
+        if (cancelled) return;
 
-      setLanguage(language);
-      setPairs(saved);
-      if (saved.length) setCurrentId(saved[0].id);
-      setLoaded(true);
+        setLanguage(language);
+        // Merge rather than replace: the capture button works before loading
+        // finishes, and a pair saved in that window would otherwise be wiped
+        // from the screen by the list read just before it.
+        setPairs((added) => {
+          const ids = new Set(added.map((pair) => pair.id));
+          return [...added, ...saved.filter((pair) => !ids.has(pair.id))];
+        });
+        setCurrentId((selected) => selected || saved[0]?.id || '');
+      } catch (error) {
+        log.warn('Could not load the library', error);
+      } finally {
+        // Whatever happened, leave the loading screen: a rejected load used to
+        // keep the app on it for good.
+        if (!cancelled) setLoaded(true);
+      }
     })();
 
     return () => {

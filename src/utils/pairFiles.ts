@@ -123,12 +123,18 @@ export function persistPairFiles(pair: StereoPair): StereoPair {
  * since purged.
  */
 export function restorePair(pair: StereoPair): StereoPair | undefined {
-  const rebased: StereoPair = { ...pair };
-  for (const key of FILE_KEYS) {
-    (rebased as Record<FileKey, string | undefined>)[key] = rebase(pair[key]);
+  try {
+    const rebased: StereoPair = { ...pair };
+    for (const key of FILE_KEYS) {
+      (rebased as Record<FileKey, string | undefined>)[key] = rebase(pair[key]);
+    }
+    if (!exists(rebased.leftUri) || !exists(rebased.rightUri)) return undefined;
+    return persistPairFiles(rebased);
+  } catch (error) {
+    // One malformed record must not take the whole library load down with it.
+    log.warn('Could not restore a saved pair', error);
+    return pair;
   }
-  if (!exists(rebased.leftUri) || !exists(rebased.rightUri)) return undefined;
-  return persistPairFiles(rebased);
 }
 
 /**

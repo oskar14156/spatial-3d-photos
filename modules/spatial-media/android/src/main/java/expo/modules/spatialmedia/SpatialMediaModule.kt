@@ -13,6 +13,7 @@ import android.graphics.Rect
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import android.webkit.MimeTypeMap
 import androidx.exifinterface.media.ExifInterface
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
@@ -54,9 +55,14 @@ class SpatialMediaModule : Module() {
         ?: throw SpatialMediaException("No content resolver available.")
 
       val source = android.net.Uri.parse(identifier)
-      val extension = source.lastPathSegment
-        ?.substringAfterLast('.', "")
-        ?.takeIf { it.isNotEmpty() && it.length <= 5 }
+      // MediaStore URIs carry no file name (`…/video/media/123`), so the copy
+      // used to be named `.dat` — and `inspect` routes by extension, which
+      // made every gallery video "unknown". Ask the resolver for the type.
+      val extension = resolver.getType(source)
+        ?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
+        ?: source.lastPathSegment
+          ?.substringAfterLast('.', "")
+          ?.takeIf { it.isNotEmpty() && it.length <= 5 }
         ?: "dat"
 
       val destination = File(
@@ -64,9 +70,15 @@ class SpatialMediaModule : Module() {
         "original-${UUID.randomUUID()}.$extension"
       )
 
-      resolver.openInputStream(source).use { input ->
-        if (input == null) throw SpatialMediaException("Could not open $identifier.")
-        FileOutputStream(destination).use { output -> input.copyTo(output) }
+      try {
+        resolver.openInputStream(source).use { input ->
+          if (input == null) throw SpatialMediaException("Could not open $identifier.")
+          FileOutputStream(destination).use { output -> input.copyTo(output) }
+        }
+      } catch (error: Throwable) {
+        // Do not leave a partial copy behind.
+        destination.delete()
+        throw error
       }
 
       "file://${destination.absolutePath}"
@@ -76,8 +88,9 @@ class SpatialMediaModule : Module() {
     AsyncFunction("discardTemporary") { uri: String ->
       val path = uri.removePrefix("file://")
       val cache = appContext.cacheDirectory?.absolutePath ?: return@AsyncFunction
-      // Only ever delete inside our own cache directory.
-      if (path.startsWith(cache)) File(path).delete()
+      // Only ever delete inside our own cache directory — with the separator,
+      // so a sibling such as `cache-other/` does not pass as `cache`.
+      if (path.startsWith(cache + File.separator)) File(path).delete()
     }
 
     AsyncFunction("inspect") { uri: String ->
@@ -225,20 +238,54 @@ class SpatialMediaModule : Module() {
     return rotated
   }
 
-  /** True when a movie carries an HEVC track, the only spatial candidate. */
+  /**
+   * True for a movie that looks like Apple spatial (MV-HEVC) video.
+   *
+   * Any HEVC track used to count, but plenty of Android phones record plain
+   * HEVC themselves, and those videos were told they were Apple spatial media
+   * this platform cannot open. MV-HEVC is marked by its layered decoder
+   * configuration box (`lhvC`) and Apple's video extended usage box (`vexu`);
+   * both sit in the movie header, which is at the start or the end of the file.
+   */
   private fun isLikelyAppleSpatialVideo(file: File): Boolean {
     val extractor = MediaExtractor()
     return try {
       extractor.setDataSource(file.path)
-      (0 until extractor.trackCount).any { index ->
+      val hevc = (0 until extractor.trackCount).any { index ->
         val mime = extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)
         mime == MediaFormat.MIMETYPE_VIDEO_HEVC
       }
+      hevc && hasMultiviewMarker(file)
     } catch (_: Exception) {
       false
     } finally {
       runCatching { extractor.release() }
     }
+  }
+
+  private fun hasMultiviewMarker(file: File): Boolean {
+    val window = 4L * 1024 * 1024
+    val markers = listOf("lhvC".toByteArray(), "vexu".toByteArray())
+    java.io.RandomAccessFile(file, "r").use { raf ->
+      val length = raf.length()
+      val ranges = if (length <= window * 2) listOf(0L to length)
+        else listOf(0L to window, (length - window) to length)
+      for ((start, end) in ranges) {
+        val buffer = ByteArray((end - start).toInt())
+        raf.seek(start)
+        raf.readFully(buffer)
+        if (markers.any { indexOf(buffer, it) >= 0 }) return true
+      }
+    }
+    return false
+  }
+
+  private fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
+    outer@ for (i in 0..haystack.size - needle.size) {
+      for (j in needle.indices) if (haystack[i + j] != needle[j]) continue@outer
+      return i
+    }
+    return -1
   }
 
   /**
