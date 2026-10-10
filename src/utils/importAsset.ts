@@ -136,7 +136,7 @@ export async function importAsset(
       };
     }
 
-    if (ownedCopy) void SpatialMedia.discardTemporary(ownedCopy);
+    if (ownedCopy) void SpatialMedia.discardTemporary(ownedCopy).catch(() => {});
     return {
       reason: `${asset.filename}: ${
         inspection.unsupportedPlatform
@@ -147,7 +147,7 @@ export async function importAsset(
       }`,
     };
   } catch (error) {
-    if (ownedCopy) void SpatialMedia.discardTemporary(ownedCopy);
+    if (ownedCopy) void SpatialMedia.discardTemporary(ownedCopy).catch(() => {});
     log.error(`[Spatial3D] import failed: ${asset.filename}`, error);
     return {
       reason: `${asset.filename}: ${

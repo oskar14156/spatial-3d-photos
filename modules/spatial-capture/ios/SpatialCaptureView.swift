@@ -94,9 +94,14 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     }
 
     onAvailabilityChange(["worldTracking": true, "lidar": hasLiDAR])
+    // Resetting tracking moves the world origin. With the first eye already
+    // anchored that would leave the anchor in the old coordinate space, and
+    // every displacement after an app switch or a call would be measured
+    // against a point that no longer means anything. Resume in place instead;
+    // only a session with nothing to preserve starts clean.
     sceneView.session.run(
       configuration,
-      options: [.resetTracking, .removeExistingAnchors]
+      options: anchorTransform == nil ? [.resetTracking, .removeExistingAnchors] : []
     )
   }
 
@@ -130,7 +135,12 @@ final class SpatialCaptureView: ExpoView, ARSessionDelegate {
     let orientation = currentImageOrientation()
 
     sceneView.session.captureHighResolutionFrame { [weak self] frame, error in
-      guard let self else { return }
+      // The view can be gone by the time ARKit answers; the caller still has
+      // a promise waiting, and silence would leave it pending forever.
+      guard let self else {
+        completion(.failure(SpatialCaptureError.captureFailed))
+        return
+      }
 
       guard let frame else {
         if error != nil {

@@ -139,9 +139,11 @@ export const ChaChaCamera: React.FC<Props> = ({ onCaptureComplete, onClose }) =>
     trackingState !== 'failed';
 
   useEffect(() => {
-    Camera.requestCameraPermissionsAsync().then((result) =>
-      setPermission(result.granted)
-    );
+    // A rejected request used to leave `permission` at null — the loading
+    // state — forever. Treat it as a refusal so the screen can explain.
+    Camera.requestCameraPermissionsAsync()
+      .then((result) => setPermission(result.granted))
+      .catch(() => setPermission(false));
   }, []);
 
   useEffect(() => {

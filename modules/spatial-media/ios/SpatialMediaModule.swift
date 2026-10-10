@@ -26,6 +26,43 @@ public final class SpatialMediaModule: Module {
   public func definition() -> ModuleDefinition {
     Name("SpatialMedia")
 
+    /// Download progress for `exportOriginal`, 0…1. PhotoKit only reports it
+    /// while fetching from iCloud, so a listener hears nothing for originals
+    /// already on the device — which is exactly when no indicator is needed.
+    Events("onOriginalProgress")
+
+    /**
+     Every asset Photos itself has tagged as spatial, newest first.
+
+     PhotoKit records this as a media subtype, so the whole library can be
+     filtered with one fetch. The gallery used to work it out by copying each
+     candidate's full original and opening it — on an iCloud-optimised library
+     that meant downloading every HEIC photo just to set a badge, and it only
+     ever looked at the pages already scrolled into view.
+     */
+    AsyncFunction("listSpatialAssets") { () -> [[String: Any]] in
+      let options = PHFetchOptions()
+      options.predicate = NSPredicate(
+        format: "(mediaSubtypes & %d) != 0",
+        Int(PHAssetMediaSubtype.spatialMedia.rawValue)
+      )
+      options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+
+      var assets: [[String: Any]] = []
+      PHAsset.fetchAssets(with: options).enumerateObjects { asset, _, _ in
+        assets.append([
+          "id": asset.localIdentifier,
+          "filename": Self.originalResource(for: asset)?.originalFilename ?? "",
+          "mediaType": asset.mediaType == .video ? "video" : "photo",
+          "width": asset.pixelWidth,
+          "height": asset.pixelHeight,
+          "duration": asset.duration,
+          "creationTime": (asset.creationDate?.timeIntervalSince1970 ?? 0) * 1000
+        ])
+      }
+      return assets
+    }
+
     /**
      Copies a library asset's *original* file into the app's temporary
      directory and resolves with its `file://` URI.
@@ -63,6 +100,14 @@ public final class SpatialMediaModule: Module {
       let options = PHAssetResourceRequestOptions()
       // iCloud-only assets are common; fetch rather than fail on them.
       options.isNetworkAccessAllowed = true
+      // Without this a large spatial video downloads in silence and the import
+      // looks frozen for as long as the network takes.
+      options.progressHandler = { [weak self] progress in
+        self?.sendEvent("onOriginalProgress", [
+          "identifier": localIdentifier,
+          "progress": progress
+        ])
+      }
 
       PHAssetResourceManager.default().writeData(
         for: resource,
@@ -83,7 +128,8 @@ public final class SpatialMediaModule: Module {
       guard let url = URL(string: uri), url.isFileURL else { return }
 
       // Only ever delete inside our own temporary directory.
-      let temporary = FileManager.default.temporaryDirectory.standardizedFileURL.path
+      // With the trailing slash, so `…/tmp-other/…` does not pass as `…/tmp`.
+      let temporary = FileManager.default.temporaryDirectory.standardizedFileURL.path + "/"
       guard url.standardizedFileURL.path.hasPrefix(temporary) else { return }
 
       try? FileManager.default.removeItem(at: url)
@@ -299,8 +345,12 @@ public final class SpatialMediaModule: Module {
       throw SpatialMediaError.notSpatialPhoto
     }
 
-    let leftURL = try writeJPEG(left)
-    let rightURL = try writeJPEG(right)
+    // `CreateImageAtIndex` hands back raw sensor pixels and drops the EXIF
+    // orientation. Spatial photos are landscape, but which way round the phone
+    // was held lives in exactly that tag — written as `.up`, a pair shot the
+    // other way round came out upside down.
+    let leftURL = try writeJPEG(left, orientation: orientation(of: source, at: indices.left))
+    let rightURL = try writeJPEG(right, orientation: orientation(of: source, at: indices.right))
 
     return [
       "leftUri": leftURL.absoluteString,
@@ -309,6 +359,12 @@ public final class SpatialMediaModule: Module {
       "width": left.width,
       "height": left.height
     ]
+  }
+
+  private static func orientation(of source: CGImageSource, at index: Int) -> CGImagePropertyOrientation {
+    let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+    let raw = properties?[kCGImagePropertyOrientation] as? UInt32 ?? 1
+    return CGImagePropertyOrientation(rawValue: raw) ?? .up
   }
 
   private static func writeJPEG(
@@ -412,6 +468,15 @@ public final class SpatialMediaModule: Module {
 
     let leftURL = cacheURL(ext: "mov")
     let rightURL = cacheURL(ext: "mov")
+    // A split that fails part-way leaves two partial movies behind, easily
+    // hundreds of megabytes. Remove them unless the split completes.
+    var completed = false
+    defer {
+      if !completed {
+        try? FileManager.default.removeItem(at: leftURL)
+        try? FileManager.default.removeItem(at: rightURL)
+      }
+    }
 
     // The source audio rides along with the left eye. That makes the left
     // track the single playback master on the JS side: two decoders instead of
@@ -502,6 +567,7 @@ public final class SpatialMediaModule: Module {
     debugLog("[SpatialMedia] split finished")
 
     let duration = try await asset.load(.duration)
+    completed = true
 
     return [
       "leftUri": leftURL.absoluteString,

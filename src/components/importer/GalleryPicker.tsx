@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,8 +18,11 @@ import type { StereoPair } from '../../types';
 import { type Palette, radius, spacing, type, useTheme, useThemedStyles } from '../../theme';
 import { useTranslation } from '../../i18n/useTranslation';
 import { hapticFeedback } from '../../utils/haptics';
+import { log } from '../../utils/log';
 import { useSpatialProbe, type ProbeResult } from '../../utils/useSpatialProbe';
 import { importAsset, type ImportOutcome } from '../../utils/importAsset';
+import { NATIVE_SPATIAL_FLAG, useSpatialLibrary } from '../../utils/useSpatialLibrary';
+import SpatialMedia from '../../../modules/spatial-media';
 import { Segmented } from '../common/Segmented';
 import { IndeterminateProgress } from '../common/IndeterminateProgress';
 
@@ -34,6 +37,9 @@ type Props = {
 type Filter = 'all' | 'spatial';
 
 const PAGE = 90;
+
+/** Stable empty input, so the probe sits idle where PhotoKit answers instead. */
+const NO_ASSETS: MediaLibrary.Asset[] = [];
 
 /**
  * The photo gallery, in the app.
@@ -65,15 +71,48 @@ export const GalleryPicker: React.FC<Props> = ({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState<string | null>(null);
 
+  // iOS: Photos already knows which assets are spatial, so ask it — once, for
+  // the whole library. The probe opened every candidate's full original to
+  // find out, which on an iCloud library meant downloading each HEIC photo,
+  // and only ever covered the pages scrolled into view; the spatial tab sat
+  // empty while it worked. Android has no such flag and keeps probing.
+  const library = useSpatialLibrary(visible && NATIVE_SPATIAL_FLAG);
   // Do not decode more videos while the selected video is being split. Both
   // operations are native and competing decoders made the import look stuck.
-  const { results, scanning } = useSpatialProbe(assets, !importing);
+  const probe = useSpatialProbe(
+    NATIVE_SPATIAL_FLAG ? NO_ASSETS : assets,
+    !NATIVE_SPATIAL_FLAG && !importing
+  );
+  const results = NATIVE_SPATIAL_FLAG ? library.results : probe.results;
+  const scanning = NATIVE_SPATIAL_FLAG ? library.loading : probe.scanning;
+
+  // Download progress for an original that lives in iCloud, 0…1. Null while
+  // nothing is downloading — PhotoKit only reports progress when it fetches.
+  const [cloudProgress, setCloudProgress] = useState<number | null>(null);
+  const importingId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!importing || !NATIVE_SPATIAL_FLAG) return;
+    const subscription = SpatialMedia.addListener(
+      'onOriginalProgress',
+      ({ identifier, progress }) => {
+        if (identifier !== importingId.current) return;
+        setCloudProgress(progress >= 1 ? null : progress);
+      }
+    );
+    return () => subscription.remove();
+  }, [importing]);
 
   const columns = width >= 700 ? 5 : 3;
   const tile = (width - (columns + 1) * 2) / columns;
 
+  // Bumped on every open. A page still loading from an earlier visit must not
+  // land on top of the fresh one.
+  const visit = useRef(0);
+
   const loadPage = useCallback(
     async (after?: string) => {
+      const requestedIn = visit.current;
       setLoading(true);
       try {
         const page = await MediaLibrary.getAssetsAsync({
@@ -82,11 +121,14 @@ export const GalleryPicker: React.FC<Props> = ({
           mediaType: ['photo', 'video'],
           sortBy: [MediaLibrary.SortBy.creationTime],
         });
+        if (requestedIn !== visit.current) return;
         setAssets((prev) => (after ? [...prev, ...page.assets] : page.assets));
         setCursor(page.endCursor);
         setHasMore(page.hasNextPage);
+      } catch (error) {
+        log.warn('Could not load a page of the photo library', error);
       } finally {
-        setLoading(false);
+        if (requestedIn === visit.current) setLoading(false);
       }
     },
     []
@@ -95,34 +137,43 @@ export const GalleryPicker: React.FC<Props> = ({
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
+    visit.current += 1;
 
     (async () => {
       const granted = await MediaLibrary.requestPermissionsAsync();
       if (cancelled) return;
       setPermission(granted.granted);
-      if (granted.granted && !assets.length) void loadPage();
+      // Reload on every open. The picker stays mounted between visits, and
+      // loading only when empty meant photos taken since the first visit
+      // never appeared until the app was restarted.
+      if (granted.granted) void loadPage();
     })();
+
+    // A fresh visit starts with nothing ticked.
+    setSelected(new Set());
 
     return () => {
       cancelled = true;
+      probe.releaseCopies();
     };
     // Re-running on every asset change would re-request on each page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const spatialIds = useMemo(
+  const spatialAssets = useMemo(
     () =>
-      assets
-        .filter((asset) => results[asset.id]?.state === 'spatial')
-        .map((asset) => asset.id),
-    [assets, results]
+      NATIVE_SPATIAL_FLAG
+        ? library.assets
+        : assets.filter((asset) => results[asset.id]?.state === 'spatial'),
+    [assets, library.assets, results]
+  );
+  const spatialIds = useMemo(
+    () => spatialAssets.map((asset) => asset.id),
+    [spatialAssets]
   );
 
   const visibleAssets = useMemo(() => {
-    const list =
-      filter === 'spatial'
-        ? assets.filter((asset) => results[asset.id]?.state === 'spatial')
-        : [...assets];
+    const list = filter === 'spatial' ? [...spatialAssets] : [...assets];
 
     if (filter === 'all') {
       // Stable partition: spatial first, everything else in library order.
@@ -132,7 +183,7 @@ export const GalleryPicker: React.FC<Props> = ({
     }
 
     return list;
-  }, [assets, filter, results]);
+  }, [assets, filter, results, spatialAssets]);
 
   const toggle = useCallback((id: string) => {
     hapticFeedback.selection();
@@ -148,7 +199,10 @@ export const GalleryPicker: React.FC<Props> = ({
     async (ids: string[]) => {
       if (!ids.length) return;
 
-      const byId = new Map(assets.map((asset) => [asset.id, asset]));
+      // Spatial assets can come from the whole library, not just loaded pages.
+      const byId = new Map(
+        [...assets, ...spatialAssets].map((asset) => [asset.id, asset])
+      );
       const imported: StereoPair[] = [];
       const failures: ImportOutcome[] = [];
 
@@ -156,6 +210,8 @@ export const GalleryPicker: React.FC<Props> = ({
         for (let index = 0; index < ids.length; index += 1) {
           const asset = byId.get(ids[index]);
           if (!asset) continue;
+          importingId.current = asset.id;
+          setCloudProgress(null);
 
           setImporting(
             asset.mediaType === 'video'
@@ -171,6 +227,8 @@ export const GalleryPicker: React.FC<Props> = ({
           else failures.push(outcome);
         }
       } finally {
+        importingId.current = null;
+        setCloudProgress(null);
         setImporting(null);
       }
 
@@ -194,7 +252,7 @@ export const GalleryPicker: React.FC<Props> = ({
 
       if (imported.length) onClose();
     },
-    [assets, onClose, onImported, results, t]
+    [assets, onClose, onImported, results, spatialAssets, t]
   );
 
   if (!visible) return null;
@@ -269,11 +327,20 @@ export const GalleryPicker: React.FC<Props> = ({
               if (hasMore && !loading) void loadPage(cursor);
             }}
             ListEmptyComponent={
-              loading ? null : (
+              filter === 'spatial' && scanning ? (
+                <View style={styles.searching}>
+                  <ActivityIndicator color={palette.blue} />
+                  <Text style={styles.noticeText}>{t('gallery_spatial_searching')}</Text>
+                </View>
+              ) : loading ? null : (
                 <Text style={styles.noticeText}>
-                  {filter === 'spatial'
-                    ? t('gallery_no_spatial')
-                    : t('gallery_empty')}
+                  {filter !== 'spatial'
+                    ? t('gallery_empty')
+                    : library.failed
+                    ? t('gallery_spatial_failed')
+                    : NATIVE_SPATIAL_FLAG
+                    ? t('gallery_no_spatial_library')
+                    : t('gallery_no_spatial')}
                 </Text>
               )
             }
@@ -300,10 +367,23 @@ export const GalleryPicker: React.FC<Props> = ({
               <View style={styles.importProgressHeader}>
                 <ActivityIndicator size="small" color={palette.blue} />
                 <Text style={styles.importProgressText} numberOfLines={2}>
-                  {importing}
+                  {cloudProgress === null
+                    ? importing
+                    : t('import_icloud', { percent: Math.round(cloudProgress * 100) })}
                 </Text>
               </View>
-              <IndeterminateProgress color={palette.blue} />
+              {cloudProgress === null ? (
+                <IndeterminateProgress color={palette.blue} />
+              ) : (
+                <View style={styles.cloudTrack}>
+                  <View
+                    style={[
+                      styles.cloudFill,
+                      { width: `${Math.max(3, cloudProgress * 100)}%` },
+                    ]}
+                  />
+                </View>
+              )}
             </View>
           )}
 
@@ -442,6 +522,14 @@ const createStyles = (palette: Palette) =>
     subtitle: { ...type.caption, marginTop: 1, color: palette.labelTertiary },
     headerAction: { ...type.callout, color: palette.blue },
     filterRow: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+    searching: { alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xl },
+    cloudTrack: {
+      height: 4,
+      borderRadius: 2,
+      overflow: 'hidden',
+      backgroundColor: palette.fillSubtle,
+    },
+    cloudFill: { height: 4, borderRadius: 2, backgroundColor: palette.blue },
 
     tile: { margin: 1, backgroundColor: palette.fillElevated },
     tileImage: { width: '100%', height: '100%' },

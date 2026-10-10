@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,6 +32,7 @@ import {
 } from '../utils/storage';
 import { formatMetricDistance } from '../utils/stereobaseCalculator';
 import { hapticFeedback } from '../utils/haptics';
+import { saveCaptureToPhotos } from '../utils/saveCaptureToPhotos';
 import { IOSIconButton } from '../components/common/IOSIconButton';
 import { NativeGlass } from '../components/common/NativeGlass';
 import { TabBar, type TabId } from '../components/common/TabBar';
@@ -151,21 +153,25 @@ export const StudioScreen: React.FC = () => {
     return Math.min((width - spacing.lg * 2) * 0.84, height * 0.42);
   }, [height, insets.bottom, insets.top, landscape, width]);
 
+  // Saving moves a pair's media into permanent storage, so the state must hold
+  // the pair that comes back — the one passed in points at temporary files.
   const addPair = useCallback(async (pair: StereoPair) => {
-    await saveStereoPair(pair);
-    setPairs((prev) => [pair, ...prev.filter((item) => item.id !== pair.id)]);
-    setCurrentId(pair.id);
+    const stored = await saveStereoPair(pair);
+    setPairs((prev) => [stored, ...prev.filter((item) => item.id !== stored.id)]);
+    setCurrentId(stored.id);
     setTab('studio');
+    return stored;
   }, []);
 
   const addPairs = useCallback(async (incoming: StereoPair[]) => {
-    for (const pair of incoming) await saveStereoPair(pair);
+    const stored: StereoPair[] = [];
+    for (const pair of incoming) stored.push(await saveStereoPair(pair));
     setPairs((prev) => {
-      const ids = new Set(incoming.map((pair) => pair.id));
-      return [...incoming, ...prev.filter((pair) => !ids.has(pair.id))];
+      const ids = new Set(stored.map((pair) => pair.id));
+      return [...stored, ...prev.filter((pair) => !ids.has(pair.id))];
     });
-    if (incoming.length) setCurrentId(incoming[0].id);
-    setTab(incoming.length > 1 ? 'library' : 'studio');
+    if (stored.length) setCurrentId(stored[0].id);
+    setTab(stored.length > 1 ? 'library' : 'studio');
   }, []);
 
   const changeAlignment = useCallback(
@@ -183,6 +189,36 @@ export const StudioScreen: React.FC = () => {
     [current]
   );
 
+  // A short confirmation that a capture reached Photos. Failure gets an alert
+  // instead: silently not saving is exactly what this exists to fix.
+  const [photosNotice, setPhotosNotice] = useState(false);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    },
+    []
+  );
+
+  const backUpCapture = useCallback(
+    async (pair: StereoPair) => {
+      const result = await saveCaptureToPhotos(pair);
+      if (result === 'saved') {
+        setPhotosNotice(true);
+        if (noticeTimer.current) clearTimeout(noticeTimer.current);
+        noticeTimer.current = setTimeout(() => setPhotosNotice(false), 2600);
+      } else {
+        Alert.alert(
+          t('capture_photos_failed_title'),
+          result === 'denied'
+            ? t('capture_photos_denied_body')
+            : t('capture_photos_failed_body')
+        );
+      }
+    },
+    [t]
+  );
+
   const removePair = useCallback(async (id: string) => {
     await deleteStereoPair(id);
     setPairs((prev) => prev.filter((pair) => pair.id !== id));
@@ -193,8 +229,11 @@ export const StudioScreen: React.FC = () => {
       <ChaChaCamera
         onClose={() => setShowCamera(false)}
         onCaptureComplete={async (pair) => {
-          await addPair(pair);
+          const stored = await addPair(pair);
           setShowCamera(false);
+          // After the library save, so Photos gets the copy from permanent
+          // storage, and without holding up the return to the studio.
+          void backUpCapture(stored);
         }}
       />
     );
@@ -206,6 +245,22 @@ export const StudioScreen: React.FC = () => {
 
   return (
     <View style={styles.root}>
+      {photosNotice && (
+        <View
+          pointerEvents="none"
+          accessibilityLiveRegion="polite"
+          style={[styles.photosNotice, { top: insets.top + spacing.sm }]}
+        >
+          <Icon
+            name="checkmark"
+            size={13}
+            weight="semibold"
+            color={palette.green}
+            style={styles.photosNoticeGlyph}
+          />
+          <Text style={styles.photosNoticeText}>{t('capture_photos_saved')}</Text>
+        </View>
+      )}
       {tab === 'library' ? (
         <LibraryScreen
           projects={pairs}
@@ -536,6 +591,24 @@ const createStyles = (palette: Palette) =>
       marginTop: spacing.md,
       color: palette.label,
     },
+    photosNotice: {
+      position: 'absolute',
+      alignSelf: 'center',
+      zIndex: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+      borderRadius: radius.chip,
+      backgroundColor: palette.fillElevated,
+      shadowColor: '#000',
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 3 },
+    },
+    photosNoticeGlyph: { width: 16, height: 16 },
+    photosNoticeText: { ...type.footnote, fontWeight: '600', color: palette.label },
     loadingBody: {
       ...type.footnote,
       marginTop: spacing.xs,

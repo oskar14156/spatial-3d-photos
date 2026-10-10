@@ -35,13 +35,14 @@ export function WiggleSurface({ pair, fps, playing }: Props) {
   const scrubbing = useSharedValue(false);
   const scrubStart = useSharedValue(0);
 
+  const halfCycleMs = Math.max(25, 1000 / Math.max(1, fps) / 2);
+
   useEffect(() => {
     if (!playing) {
       cancelAnimation(blend);
       return;
     }
 
-    const halfCycleMs = Math.max(25, 1000 / Math.max(1, fps) / 2);
     blend.value = 0;
     // `withTiming` to 1 then mirrored back gives the hard A/B swap the effect
     // needs; a short ramp keeps it from strobing on high refresh displays.
@@ -54,19 +55,30 @@ export function WiggleSurface({ pair, fps, playing }: Props) {
     return () => cancelAnimation(blend);
   }, [blend, fps, playing]);
 
+  // `onStart`, not `onBegin`: begin fires on touch-down, so merely tapping the
+  // viewer used to cancel the wiggle — and nothing ever restarted it.
   const scrub = Gesture.Pan()
-    .onBegin(() => {
+    .activeOffsetX([-8, 8])
+    .onStart(() => {
       scrubbing.value = true;
       cancelAnimation(blend);
       scrubStart.value = blend.value;
     })
     .onUpdate((event) => {
+      if (!scrubbing.value) return;
       blend.value = Math.min(
         1,
         Math.max(0, scrubStart.value + event.translationX / 220)
       );
     })
     .onFinalize(() => {
+      if (scrubbing.value && playing) {
+        blend.value = withRepeat(
+          withTiming(1, { duration: halfCycleMs, easing: Easing.steps(2, true) }),
+          -1,
+          true
+        );
+      }
       scrubbing.value = false;
     });
 

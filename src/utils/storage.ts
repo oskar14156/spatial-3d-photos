@@ -1,5 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { log } from './log';
+import {
+  deletePairFiles,
+  persistPairFiles,
+  releaseReplacedFiles,
+  restorePair,
+} from './pairFiles';
 import type { LanguageCode, StereoAlignment, StereoPair } from '../types';
 
 const KEYS = {
@@ -26,39 +32,105 @@ async function readProjects(): Promise<StereoPair[]> {
   }
 }
 
-async function writeProjects(projects: StereoPair[]): Promise<void> {
+/** Reports whether the write landed, so callers never delete files first. */
+async function writeProjects(projects: StereoPair[]): Promise<boolean> {
   try {
     await AsyncStorage.setItem(KEYS.projects, JSON.stringify(projects));
+    return true;
   } catch (error) {
     log.warn('Could not persist stereo pairs', error);
+    return false;
   }
 }
 
-/** Saved projects first, with the built-in samples appended for discovery. */
-export async function loadSavedStereoPairs(): Promise<StereoPair[]> {
+/**
+ * Every read-modify-write of the pair list goes through this queue. Each
+ * operation reads the whole list and writes it back, so two running at once —
+ * an alignment nudge while an import saves — would each write a list missing
+ * the other's change.
+ */
+let pending: Promise<unknown> = Promise.resolve();
+function serial<T>(operation: () => Promise<T>): Promise<T> {
+  const run = pending.then(operation, operation);
+  pending = run.catch(() => {});
+  return run;
+}
+
+/**
+ * The user's saved pairs, ready to display.
+ *
+ * Also repairs what earlier builds left behind: paths re-anchored to this
+ * launch's data container, files still sitting in temporary storage moved out
+ * of it, and records whose images the system has already purged dropped —
+ * those cannot be shown, and keeping them only produced blank tiles.
+ */
+export function loadSavedStereoPairs(): Promise<StereoPair[]> {
+  return serial(loadAndRepair);
+}
+
+async function loadAndRepair(): Promise<StereoPair[]> {
   const saved = await readProjects();
-  return saved;
+  const restored: StereoPair[] = [];
+  let changed = false;
+
+  for (const pair of saved) {
+    const usable = restorePair(pair);
+    if (!usable) {
+      log.warn('Dropping a saved pair whose images no longer exist');
+      changed = true;
+      continue;
+    }
+    if (JSON.stringify(usable) !== JSON.stringify(pair)) changed = true;
+    restored.push(usable);
+  }
+
+  if (changed) await writeProjects(restored);
+  return restored;
 }
 
-export async function saveStereoPair(pair: StereoPair): Promise<void> {
-  const existing = await readProjects();
-  await writeProjects([pair, ...existing.filter((item) => item.id !== pair.id)]);
+/**
+ * Saves a pair and returns it as stored. Its media moves out of temporary
+ * storage on the way in, so callers must keep the returned pair — the one they
+ * passed in now points at files that are gone.
+ */
+export function saveStereoPair(pair: StereoPair): Promise<StereoPair> {
+  return serial(async () => {
+    const stored = persistPairFiles(pair);
+    const existing = await readProjects();
+    const previous = existing.find((item) => item.id === stored.id);
+    const written = await writeProjects([
+      stored,
+      ...existing.filter((item) => item.id !== stored.id),
+    ]);
+    // Only once the new record is safely stored: if the write failed, the old
+    // record is still the saved one and still needs its files.
+    if (written && previous) releaseReplacedFiles(previous, stored);
+    return stored;
+  });
 }
 
-export async function updateStereoPairAlignment(
+export function updateStereoPairAlignment(
   pairId: string,
   alignment: StereoAlignment
 ): Promise<void> {
-  const existing = await readProjects();
-  if (!existing.some((item) => item.id === pairId)) return;
-  await writeProjects(
-    existing.map((item) => (item.id === pairId ? { ...item, alignment } : item))
-  );
+  return serial(async () => {
+    const existing = await readProjects();
+    if (!existing.some((item) => item.id === pairId)) return;
+    await writeProjects(
+      existing.map((item) => (item.id === pairId ? { ...item, alignment } : item))
+    );
+  });
 }
 
-export async function deleteStereoPair(pairId: string): Promise<void> {
-  const existing = await readProjects();
-  await writeProjects(existing.filter((item) => item.id !== pairId));
+export function deleteStereoPair(pairId: string): Promise<void> {
+  return serial(async () => {
+    const existing = await readProjects();
+    const written = await writeProjects(
+      existing.filter((item) => item.id !== pairId)
+    );
+    // A failed write leaves the record saved; keep the media it points at.
+    if (written) deletePairFiles(pairId);
+  });
 }
 
 export async function loadLanguagePreference(): Promise<LanguageCode> {

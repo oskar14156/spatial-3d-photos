@@ -1,4 +1,4 @@
-import { requireNativeModule } from 'expo-modules-core';
+import { NativeModule, requireNativeModule } from 'expo-modules-core';
 
 type SplitResult = {
   leftUri: string;
@@ -28,7 +28,30 @@ type InspectionResult = {
   unsupportedPlatform?: boolean;
 };
 
-type NativeSpatialMedia = {
+/** An asset Photos has tagged as spatial, as `listSpatialAssets` reports it. */
+export type SpatialLibraryAsset = {
+  id: string;
+  filename: string;
+  mediaType: 'photo' | 'video';
+  width: number;
+  height: number;
+  /** Seconds; 0 for photos. */
+  duration: number;
+  /** Milliseconds since the epoch. */
+  creationTime: number;
+};
+
+type SpatialMediaEvents = {
+  onOriginalProgress: (event: { identifier: string; progress: number }) => void;
+};
+
+declare class NativeSpatialMedia extends NativeModule<SpatialMediaEvents> {
+  /**
+   * Every asset Photos has tagged as spatial, newest first. iOS only: Android
+   * has no equivalent flag, so callers fall back to probing there.
+   */
+  listSpatialAssets(): Promise<SpatialLibraryAsset[]>;
+
   /**
    * Copies a photo-library item's original into temporary storage and returns
    * a readable `file://` URI.
@@ -48,6 +71,6 @@ type NativeSpatialMedia = {
     rightUri: string,
     format: string
   ): Promise<string>;
-};
+}
 
 export default requireNativeModule<NativeSpatialMedia>('SpatialMedia');

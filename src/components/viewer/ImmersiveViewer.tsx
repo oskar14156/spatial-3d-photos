@@ -41,12 +41,16 @@ export function ImmersiveViewer({ visible, pair, mode, options, onClose }: Props
 
     // A headset holder is landscape; rotating by hand mid-session is not an
     // option once the phone is inside one.
-    void ScreenOrientation.lockAsync(
+    //
+    // The unlock waits for the lock. Closing straight after opening used to
+    // run the unlock first, and the lock then landed on a screen that had
+    // already gone, leaving the whole app stuck in landscape.
+    const locked = ScreenOrientation.lockAsync(
       ScreenOrientation.OrientationLock.LANDSCAPE
-    );
+    ).catch(() => {});
 
     return () => {
-      void ScreenOrientation.unlockAsync();
+      void locked.then(() => ScreenOrientation.unlockAsync()).catch(() => {});
     };
   }, [visible]);
 

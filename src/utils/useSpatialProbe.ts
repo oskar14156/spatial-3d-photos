@@ -109,7 +109,7 @@ export function useSpatialProbe(
           // Hold on to the copy only if it is going to be imported; otherwise
           // probing a large library would leave every candidate behind.
           if (!spatial) {
-            void SpatialMedia.discardTemporary(copy);
+            void SpatialMedia.discardTemporary(copy).catch(() => {});
             copy = undefined;
           }
 
@@ -124,7 +124,7 @@ export function useSpatialProbe(
                 : undefined,
           });
         } catch {
-          if (copy) void SpatialMedia.discardTemporary(copy);
+          if (copy) void SpatialMedia.discardTemporary(copy).catch(() => {});
           // A probe failure is not an import failure; treat it as ordinary
           // media so the asset stays selectable.
           publish(id, { state: 'failed' });
@@ -172,5 +172,24 @@ export function useSpatialProbe(
     }
   }, [assets, enabled, publish, pump]);
 
-  return { results, scanning };
+  /**
+   * Gives back the originals held for spatial assets that were never imported.
+   *
+   * The gallery stays mounted between visits, so an unmount cleanup would never
+   * run; it calls this when it closes instead. Anything that was imported has
+   * already been moved into permanent storage, and deleting its old temporary
+   * path is a no-op.
+   */
+  const releaseCopies = useCallback(() => {
+    let released = false;
+    for (const [id, result] of Object.entries(cache.current)) {
+      if (!result.originalUri) continue;
+      void SpatialMedia.discardTemporary(result.originalUri).catch(() => {});
+      cache.current[id] = { ...result, originalUri: undefined };
+      released = true;
+    }
+    if (released && mounted.current) setResults({ ...cache.current });
+  }, []);
+
+  return { results, scanning, releaseCopies };
 }

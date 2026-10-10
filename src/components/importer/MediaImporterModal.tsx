@@ -260,6 +260,27 @@ export const MediaImporterModal: React.FC<Props> = ({
     await finish(pair);
   }
 
+  /**
+   * Every entry point runs through here. Each import's own `try` only starts
+   * after the picker returns, so a picker that rejected — or a failure while
+   * building the pair — used to skip `setBusy(false)` and leave the sheet on
+   * its processing screen for good.
+   */
+  function guarded(run: () => Promise<void>) {
+    return async () => {
+      try {
+        await run();
+      } catch (error) {
+        Alert.alert(
+          t('import_failed'),
+          error instanceof Error ? error.message : t('error')
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
+  }
+
   async function finish(pair: StereoPair) {
     hapticFeedback.success();
     await Promise.resolve(onImportComplete(pair));
@@ -290,21 +311,21 @@ export const MediaImporterModal: React.FC<Props> = ({
               symbol="viewfinder.rectangular"
               title={t('import_apple_title')}
               detail={t('import_apple_detail')}
-              onPress={importAppleSpatial}
+              onPress={guarded(importAppleSpatial)}
             />
             <View style={styles.divider} />
             <ImportRow
               symbol="rectangle.split.2x1"
               title={t('import_sbs_title')}
               detail={t('import_sbs_detail')}
-              onPress={importSideBySide}
+              onPress={guarded(importSideBySide)}
             />
             <View style={styles.divider} />
             <ImportRow
               symbol="photo.stack"
               title={t('import_dual_title')}
               detail={t('import_dual_detail')}
-              onPress={importTwoPhotos}
+              onPress={guarded(importTwoPhotos)}
             />
           </View>
 
